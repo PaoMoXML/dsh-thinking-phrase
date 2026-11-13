@@ -1,0 +1,43 @@
+{
+  "name": "dsh-thinking-phrase",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Customize the running thinking label (\"Deep diving for …\"): nine effects (typewriter, command line, wipe, focus, decode, scroll and more), placeholders for seconds, a spinner and a progress bar, random phrases, a random effect per phrase, and an optional typo that corrects itself. | 自定义会话进行中的「深度求索中，用时 …」提示文字：九种特效（打字机、命令行、揭幕、对焦、解码、平移等）、秒数/转动标记/进度条占位符、随机短语、随机效果、偶发错字自动修正。",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": { "default": "./index.js" },
+    "./client": { "default": "./client.js" },
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "lib",
+    "locale/*.json",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": []
+    }
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "thinking",
+    "typewriter",
+    "animation"
+  ],
+  "license": "MIT"
+}

@@ -1,0 +1,11 @@
+# Dependencies are never installed here; the plugin runs from the profile.
+node_modules/
+
+# Local snapshots kept on disk for rollback, not part of the project history.
+backups/
+*.bak
+
+# Local noise.
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,4 @@
+- insert:
+    - id: thinking-phrase
+      name: dsh-thinking-phrase
+      config: {}
