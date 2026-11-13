@@ -7,6 +7,7 @@ import {
   DEFAULT_SETTINGS,
   DECODE_STYLES,
   EFFECTS,
+  MAX_PHRASES,
   cleanDecodeStyles,
   cleanEffects,
   cleanPhrases,
@@ -107,9 +108,11 @@ test('normalizeSettings repairs unknown and out-of-range values', () => {
   })
 })
 
-test('cleanPhrases caps lines and falls back to the default phrase', () => {
-  const many = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`)
-  assert.equal(cleanPhrases(many).length, 20)
+test('cleanPhrases caps lines at the stored limit and falls back to the default', () => {
+  const many = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`)
+  assert.equal(MAX_PHRASES, 25)
+  assert.equal(cleanPhrases(many).length, MAX_PHRASES)
+  assert.equal(cleanPhrases(many)[MAX_PHRASES - 1], 'line ' + MAX_PHRASES)
   assert.deepEqual(cleanPhrases([]), ['深度求索中，用时 {duration}'])
   assert.deepEqual(cleanPhrases([null, '', '  ']), ['深度求索中，用时 {duration}'])
 })

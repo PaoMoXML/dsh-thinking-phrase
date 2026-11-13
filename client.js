@@ -120,7 +120,9 @@ window.__ModuleLoader__.load({
       'form.enabled': 'Show this phrase while the model is thinking',
       'form.phrases': 'Phrases (one per line; several lines rotate)',
       'form.phrasesPlaceholder': 'Deep diving for {duration}\nThinking hard…',
-      'form.phrasesHint': 'Up to 20 lines. Placeholders: {duration} localized elapsed, {seconds} plain seconds, {spinner} a turning mark, {bar} a bar filling with the whole running time.',
+      'form.phrasesHint': 'Up to {max} lines. Placeholders: {duration} localized elapsed, {seconds} plain seconds, {spinner} a turning mark, {bar} a bar filling with the whole running time.',
+      'form.phrasesCount': '{count}/{max}',
+      'form.phrasesOver': '{count}/{max} -- only the first {max} are kept',
       'form.random': 'Pick the next phrase at random',
       'form.randomHint': 'Random order instead of cycling in sequence; needs more than one phrase, and the preview still cycles in order.',
       'form.glitch': 'Occasional typo that corrects itself',
@@ -164,7 +166,9 @@ window.__ModuleLoader__.load({
       'form.enabled': '模型思考时显示自定义提示',
       'form.phrases': '提示文字（每行一条，多条循环播放）',
       'form.phrasesPlaceholder': '深度求索中，用时 {duration}\n正在深度思考…',
-      'form.phrasesHint': '最多 20 条；可用 {duration}（本地化用时）、{seconds}（纯秒数）、{spinner}（转动标记）、{bar}（按总用时增长的进度条）。',
+      'form.phrasesHint': '最多 {max} 条；可用 {duration}（本地化用时）、{seconds}（纯秒数）、{spinner}（转动标记）、{bar}（按总用时增长的进度条）。',
+      'form.phrasesCount': '{count}/{max}',
+      'form.phrasesOver': '{count}/{max} —— 只保留前 {max} 条',
       'form.random': '随机挑选下一条',
       'form.randomHint': '每条结束后随机挑一条，不按顺序循环；需要两条以上，预览仍按顺序演示。',
       'form.glitch': '偶发错字自动修正',
@@ -224,6 +228,11 @@ window.__ModuleLoader__.load({
     }
 
     // ── pure settings / animation helpers ──────────────────────────────────
+    /** The most phrases one configuration may carry; the host stores the same cap. */
+    var MAX_PHRASES = 25
+    /** The longest phrase accepted, in code points. */
+    var MAX_PHRASE_LENGTH = 120
+
     function clampInteger(value, min, max, fallback) {
       var number = typeof value === 'number' ? value : Number(value)
       if (!Number.isFinite(number)) return fallback
@@ -238,10 +247,27 @@ window.__ModuleLoader__.load({
         if (typeof item !== 'string') continue
         var text = item.replace(/\r\n?/g, '\n').split('\n')[0].trim()
         if (text === '') continue
-        phrases.push(Array.from(text).slice(0, 120).join(''))
-        if (phrases.length >= 20) break
+        phrases.push(Array.from(text).slice(0, MAX_PHRASE_LENGTH).join(''))
+        if (phrases.length >= MAX_PHRASES) break
       }
       return phrases.length > 0 ? phrases : DEFAULT_SETTINGS.phrases.slice()
+    }
+
+    /**
+     * How many phrase lines the textarea really holds: blank lines and stray
+     * whitespace do not count, and the cap is not applied, so the page can say
+     * when the reader has typed more than will be kept.
+     * @param {string} text - the textarea value.
+     * @returns {number} the number of non-empty lines.
+     */
+    function countPhrases(text) {
+      if (typeof text !== 'string') return 0
+      var lines = text.split('\n')
+      var count = 0
+      for (var i = 0; i < lines.length; i += 1) {
+        if (lines[i].trim() !== '') count += 1
+      }
+      return count
     }
 
     /**
@@ -1371,6 +1397,9 @@ window.__ModuleLoader__.load({
       // What a step can land on, so a control is shown exactly when its effect can
       // actually run -- an empty pool falls back to the fixed effect.
       var attemptedEffects = activeEffects(normalizeSettings(draft))
+      // Counted off the textarea, not off the cleaned list: a reader who typed past
+      // the cap should see how far past it they are.
+      var phraseCount = countPhrases(text)
 
       /** One edit: it freezes the draft against a late host read and retires the last notice. */
       function touch() {
@@ -1459,7 +1488,18 @@ window.__ModuleLoader__.load({
           onChange: function (next) { touch(); setEnabled(next) },
         })),
       h('label', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
-        h('span', { style: { fontSize: '12px', fontWeight: 500 } }, t('form.phrases')),
+        h('span', { style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px' } },
+          h('span', { style: { fontSize: '12px', fontWeight: 500 } }, t('form.phrases')),
+          h('span', {
+            role: 'status',
+            style: {
+              fontSize: '11px',
+              fontVariantNumeric: 'tabular-nums',
+              color: phraseCount > MAX_PHRASES ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-label-tertiary)',
+            },
+          }, phraseCount > MAX_PHRASES
+            ? t('form.phrasesOver', { count: phraseCount, max: MAX_PHRASES })
+            : t('form.phrasesCount', { count: phraseCount, max: MAX_PHRASES }))),
         h('textarea', {
           value: text,
           rows: 6,
@@ -1473,7 +1513,7 @@ window.__ModuleLoader__.load({
             fontFamily: 'inherit', fontSize: '12px', lineHeight: '18px',
           },
         }),
-        h('span', { style: { fontSize: '11px', lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' } }, t('form.phrasesHint'))),
+        h('span', { style: { fontSize: '11px', lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' } }, t('form.phrasesHint', { max: MAX_PHRASES }))),
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } },
         h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' } },
           h('span', { style: { fontSize: '13px' } }, t('form.random')),
@@ -1661,6 +1701,9 @@ window.__ModuleLoader__.load({
     exports.DEFAULT_SETTINGS = DEFAULT_SETTINGS
     exports.EFFECTS = EFFECTS
     exports.normalizeSettings = normalizeSettings
+    exports.countPhrases = countPhrases
+    exports.MAX_PHRASES = MAX_PHRASES
+    exports.MAX_PHRASE_LENGTH = MAX_PHRASE_LENGTH
     exports.phrasesFromTextarea = phrasesFromTextarea
     exports.applyDuration = applyDuration
     exports.durationSeconds = durationSeconds

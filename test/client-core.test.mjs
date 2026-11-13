@@ -609,6 +609,23 @@ test('a salt changes the decode order, and the same salt repeats it', () => {
   assert.ok(orders.size > 1, 'different salts must decode differently')
 })
 
+test('the phrase cap is 25 and the page counts what is typed', () => {
+  assert.equal(core.MAX_PHRASES, 25)
+  const many = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`)
+  assert.equal(core.phrasesFromTextarea(many.join('\n')).length, core.MAX_PHRASES)
+  // The count is of the textarea, so blank lines do not inflate it and going past
+  // the cap is visible rather than silently trimmed.
+  assert.equal(core.countPhrases('a\n\n  \nb\n'), 2)
+  assert.equal(core.countPhrases(''), 0)
+  assert.equal(core.countPhrases(undefined), 0)
+  assert.equal(core.countPhrases(many.join('\n')), 40)
+  // Both halves store the same cap, or a save would quietly truncate.
+  return import('../lib/store.js').then((host) => {
+    assert.equal(core.MAX_PHRASES, host.MAX_PHRASES)
+    assert.equal(core.MAX_PHRASE_LENGTH, host.MAX_PHRASE_LENGTH)
+  })
+})
+
 test('every decode noise glyph is full width, so the line never widens', () => {
   // An equal-width CJK font advances ambiguous glyphs (U+2588 shading blocks and
   // friends) by half a CJK cell, which made a settling line creep wider. Every
