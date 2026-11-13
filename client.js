@@ -43,16 +43,21 @@ window.__ModuleLoader__.load({
     /** Decode looks like shading blocks, or like raw hex data. */
     var DECODE_STYLES = ['blocks', 'hex']
     /**
-     * Decode's three fading stages, coarse to fine, so a glyph is visibly being
-     * resolved rather than flashed. Blocks keep it apart from a typo's punctuation.
+     * The blocks style's three fading stages, coarse to fine, so a glyph is
+     * visibly being resolved rather than flashed. The hex style ignores these and
+     * draws from {@link DECODE_HEX} instead.
      */
     var DECODE_STAGES = [
       ['█', '▓', '▚'],
       ['▒', '▞', '▪'],
       ['░', '▫', '·'],
     ]
-    /** The hex style's alphabet, which reads as bytes being parsed. */
-    var DECODE_HEX = '0123456789ABCDEF'
+    /**
+     * The hex style's alphabet, which reads as bytes being parsed. Full-width
+     * forms, so a hex glyph occupies the same advance as a CJK one and the line
+     * does not visibly widen as glyphs settle.
+     */
+    var DECODE_HEX = '０１２３４５６７８９ＡＢＣＤＥＦ'
     /**
      * A typo shows punctuation, never the shading blocks a decode uses: the two
      * effects must not read as the same noise.
@@ -401,6 +406,20 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * The effects a step can actually land on: the ticked pool when the random
+     * switch is on and the pool has entries, otherwise the fixed effect. The page
+     * reads this, so an empty pool still shows the controls of the effect that
+     * will really run.
+     * @param {ReturnType<typeof normalizeSettings>} settings - accepted settings.
+     * @returns {string[]} one or more effects.
+     */
+    function activeEffects(settings) {
+      var pool = Array.isArray(settings.effectPool) ? settings.effectPool : []
+      if (settings.randomEffect === true && pool.length > 0) return pool
+      return [settings.effect]
+    }
+
+    /**
      * The effect in force for one rotation step. With a pool and the switch on,
      * each step draws from the pool, so a phrase can come in with any of the
      * chosen effects; otherwise the fixed effect applies. `salt` is the running
@@ -445,7 +464,8 @@ window.__ModuleLoader__.load({
      * @param {string} text - the fully rendered phrase.
      * @param {number} phraseElapsed - elapsed time inside the current phrase.
      * @param {number} [salt] - the element's seed, so the noise differs per label.
-     * @param {number} [speedMs] - how long one settle step takes.
+     * @param {number} [speedMs] - how long one settle step takes; the same 10-300
+     *   range the settings document stores, so a caller cannot drift from it.
      * @param {string} [style] - `blocks` or `hex`.
      * @returns {string} the decoded frame, same code-point count.
      */
@@ -453,7 +473,8 @@ window.__ModuleLoader__.load({
       var glyphs = Array.from(String(text))
       var total = glyphs.length
       if (total === 0) return ''
-      var step = Math.max(10, Math.round(Number(speedMs) || DEFAULT_DECODE_SPEED_MS))
+      var raw = Number(speedMs)
+      var step = Math.max(10, Math.min(300, Math.round(Number.isFinite(raw) ? raw : DEFAULT_DECODE_SPEED_MS)))
       var hex = style === 'hex'
       var settled = Math.max(0, Math.floor((Number(phraseElapsed) || 0) / step))
       if (settled >= total) return glyphs.join('')
@@ -1277,6 +1298,10 @@ window.__ModuleLoader__.load({
         typeSpeedMs: Number(typeSpeedMs),
       }
 
+      // What a step can land on, so a control is shown exactly when its effect can
+      // actually run -- an empty pool falls back to the fixed effect.
+      var attemptedEffects = activeEffects(normalizeSettings(draft))
+
       /** One edit: it freezes the draft against a late host read and retires the last notice. */
       function touch() {
         touchedRef.current = true
@@ -1449,19 +1474,9 @@ window.__ModuleLoader__.load({
         randomEffect && effectPool.length === 0
           ? h('span', { style: { fontSize: '11px', lineHeight: '16px', color: 'var(--dsw-alias-state-error-primary)' } }, t('form.effectPoolEmpty'))
           : null),
-      h('div', { style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '16px' } },
-        h(NumberField, {
-          label: t('form.cycle'), min: 1, max: 60, value: cycleSeconds,
-          unit: t('form.seconds'), onChange: function (value) { touch(); setCycleSeconds(value) },
-        }),
-        (randomEffect
-          ? effectPool.indexOf('typewriter') !== -1 || effectPool.indexOf('terminal') !== -1
-          : effect === 'typewriter' || effect === 'terminal')
-          ? h(NumberField, {
-            label: t('form.typeSpeed'), min: 10, max: 300, value: typeSpeedMs,
-            unit: t('form.msPerChar'), onChange: function (value) { touch(); setTypeSpeedMs(value) },
-          }) : null),
-      (randomEffect ? effectPool.indexOf('decode') !== -1 : effect === 'decode')
+      // The decode settings sit right under the chips that pick the effect, since
+      // they belong to that effect rather than to the rotation rhythm below.
+      attemptedEffects.indexOf('decode') !== -1
         ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
           h('span', { style: { fontSize: '12px', fontWeight: 500 } }, t('form.decodeStyle')),
           h('div', {
@@ -1480,6 +1495,16 @@ window.__ModuleLoader__.load({
             unit: t('form.decodeSpeedUnit'), onChange: function (value) { touch(); setDecodeSpeedMs(value) },
           }))
         : null,
+      h('div', { style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '16px' } },
+        h(NumberField, {
+          label: t('form.cycle'), min: 1, max: 60, value: cycleSeconds,
+          unit: t('form.seconds'), onChange: function (value) { touch(); setCycleSeconds(value) },
+        }),
+        attemptedEffects.indexOf('typewriter') !== -1 || attemptedEffects.indexOf('terminal') !== -1
+          ? h(NumberField, {
+            label: t('form.typeSpeed'), min: 10, max: 300, value: typeSpeedMs,
+            unit: t('form.msPerChar'), onChange: function (value) { touch(); setTypeSpeedMs(value) },
+          }) : null),
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
         h('span', { style: { fontSize: '12px', fontWeight: 500 } }, t('form.preview')),
         h(Preview, { settings: normalizeSettings(draft), t: t, probeRef: glitchProbeRef })),
@@ -1567,6 +1592,7 @@ window.__ModuleLoader__.load({
     exports.glitchText = glitchText
     exports.cleanEffects = cleanEffects
     exports.resolveEffect = resolveEffect
+    exports.activeEffects = activeEffects
     exports.decodeText = decodeText
     exports.decodeRank = decodeRank
     exports.glitchAllowed = glitchAllowed

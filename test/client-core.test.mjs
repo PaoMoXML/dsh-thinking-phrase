@@ -71,12 +71,15 @@ test('phraseIndexAt wraps through the phrase list', () => {
   assert.equal(core.phraseIndexAt(3, 4000, 12100), 0)
 })
 
-test('default effect shows the complete phrase', () => {
+test('default effect shows the complete phrase and moves nothing', () => {
   const settings = core.normalizeSettings({ phrases: ['深度求索中，用时 {duration}'] })
   const frame = core.effectFrame(settings, 0, '3 秒')
   assert.equal(frame.text, '深度求索中，用时 3 秒')
   assert.equal(frame.opacity, 1)
   assert.equal(frame.caret, false)
+  // No effect assigns a displacement any more; a reintroduced one would show here.
+  assert.equal(frame.shiftX, 0)
+  assert.equal(frame.shiftY, 0)
 })
 
 test('typewriter reveals characters and toggles the caret', () => {
@@ -311,19 +314,26 @@ test('the browser and host agree on defaults and normalization', async () => {
     glitch: true,
     glitchChance: 40,
     effect: 'terminal',
-    effectPool: ['wipe', 'decode'],
+    effectPool: ['decode', 'terminal'],
     randomEffect: true,
+    decodeStyle: 'hex',
+    decodeSpeedMs: 90,
     cycleSeconds: 999,
     typeSpeedMs: -1,
   }
   assert.deepEqual(core.normalizeSettings(sample), host.normalizeSettings(sample))
   // The pool's own cleaning must match too: the sample above already happens to be
   // in canonical order, which would hide a divergence.
-  const messy = { effectPool: ['decode', 'wipe', 'decode', 'nope', 42] }
+  const messy = { effectPool: ['decode', 'terminal', 'decode', 'nope', 42] }
   assert.deepEqual(core.cleanEffects(messy.effectPool), host.cleanEffects(messy.effectPool))
   assert.deepEqual(core.normalizeSettings(messy).effectPool, host.normalizeSettings(messy).effectPool)
   assert.deepEqual(core.cleanEffects(undefined), host.cleanEffects(undefined))
   assert.deepEqual(core.EFFECTS, host.EFFECTS)
+  // The decode alphabet and style list are written twice; a split there would mean
+  // the page offers a style the host silently renames on save.
+  assert.deepEqual(core.DECODE_STYLES, host.DECODE_STYLES)
+  // An effect the host no longer lists must fall back on both sides.
+  assert.equal(core.normalizeSettings({ effect: 'wipe' }).effect, host.normalizeSettings({ effect: 'wipe' }).effect)
 })
 
 test('placeholders fill from running time and the host duration', () => {
@@ -692,6 +702,36 @@ test('a pool draw differs per label but holds within one', () => {
   }
 })
 
+test('the decode speed is clamped the same way the settings are', () => {
+  const phrase = '深度求索中，用时三秒'
+  // Out-of-range input is pulled into 10-300 rather than trusted: 0 behaves like
+  // 10, a huge value like 300, and a missing one like the default.
+  assert.equal(core.decodeText(phrase, 100, 0, 0, 'blocks'), core.decodeText(phrase, 100, 0, 10, 'blocks'))
+  assert.equal(core.decodeText(phrase, 100, 0, 9999, 'blocks'), core.decodeText(phrase, 100, 0, 300, 'blocks'))
+  assert.equal(core.decodeText(phrase, 100, 0, undefined, 'blocks'), core.decodeText(phrase, 100, 0, core.DEFAULT_DECODE_SPEED_MS, 'blocks'))
+  assert.equal(core.decodeText(phrase, 100, 0, NaN, 'blocks'), core.decodeText(phrase, 100, 0, core.DEFAULT_DECODE_SPEED_MS, 'blocks'))
+})
+
+test('the effect in force decides which controls the page shows', () => {
+  // A pool with entries is what a step can land on; without one the fixed effect is.
+  assert.deepEqual(core.activeEffects(core.normalizeSettings({ effect: 'decode' })), ['decode'])
+  assert.deepEqual(
+    core.activeEffects(core.normalizeSettings({ effect: 'default', effectPool: ['terminal', 'decode'], randomEffect: true })),
+    ['terminal', 'decode'],
+  )
+  // The switch is on but nothing is ticked: the fixed effect still runs, so its
+  // controls must still show.
+  assert.deepEqual(
+    core.activeEffects(core.normalizeSettings({ effect: 'decode', effectPool: [], randomEffect: true })),
+    ['decode'],
+  )
+  // The switch is off: the pool is ignored even when it is full.
+  assert.deepEqual(
+    core.activeEffects(core.normalizeSettings({ effect: 'default', effectPool: ['decode'], randomEffect: false })),
+    ['default'],
+  )
+})
+
 test('every effect keeps the full line once it has finished arriving', () => {
   const phrase = '深度求索中，用时 {duration}'
   const expected = Array.from('深度求索中，用时 3 秒').length
@@ -713,8 +753,15 @@ test('every copy key the page asks for exists in both dictionaries', () => {
   const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
   const asked = new Set()
   for (const match of source.matchAll(/(?:\bt|\bsay)\('([a-zA-Z]+\.[a-zA-Z]+)'\)/g)) asked.add(match[1])
+  // Keys built by concatenation (`t('decodeStyle.' + id)`) never match the literal
+  // pattern, so the prefix is read too and expanded from the list it iterates.
+  const prefixes = new Set()
+  for (const match of source.matchAll(/(?:\bt|\bsay)\('([a-zA-Z]+\.)'\s*\+/g)) prefixes.add(match[1])
+  assert.ok(prefixes.has('effect.'), 'the effect chips build their key from a prefix')
+  assert.ok(prefixes.has('decodeStyle.'), 'the decode style chips build their key from a prefix')
   for (const effect of core.EFFECTS) asked.add('effect.' + effect)
-  assert.ok(asked.size > 15, '应当解析出足够多的文案键，实际 ' + asked.size)
+  for (const style of core.DECODE_STYLES) asked.add('decodeStyle.' + style)
+  assert.ok(asked.size > 18, '应当解析出足够多的文案键，实际 ' + asked.size)
   for (const key of asked) {
     assert.equal(typeof core.COPY.en[key], 'string', 'en 缺少文案键：' + key)
     assert.equal(typeof core.COPY.zh[key], 'string', 'zh 缺少文案键：' + key)
@@ -724,4 +771,10 @@ test('every copy key the page asks for exists in both dictionaries', () => {
     Object.keys(core.COPY.en).sort(),
     '两份字典的键应当一致',
   )
+  // A removed effect leaves no dead copy behind.
+  for (const gone of ['fade', 'slide', 'wipe', 'blur', 'marquee']) {
+    assert.equal(core.COPY.zh['effect.' + gone], undefined, 'orphan zh key: effect.' + gone)
+    assert.equal(core.COPY.en['effect.' + gone], undefined, 'orphan en key: effect.' + gone)
+  }
+  assert.equal(core.COPY.zh['form.marqueeHint'], undefined, 'orphan marquee hint')
 })
