@@ -938,7 +938,6 @@ window.__ModuleLoader__.load({
     }
 
     // ── runtime: replace the generated text of the running label ──────────
-    var runtimeTimer = null
     var localeService = null
     var runStates = new WeakMap()
     var durationTemplate = ''
@@ -1038,6 +1037,37 @@ window.__ModuleLoader__.load({
       element.style.setProperty('--dsh-thinking-shift-y', frame.shiftY + 'px')
       element.style.setProperty('--dsh-thinking-caret-width', frame.caret ? '1px' : '0px')
       return true
+    }
+
+    /**
+     * Repeat `tick` at roughly {@link TICK_MS}, on the frame clock when the host has
+     * one. A frame clock stops painting in a hidden tab, so the plugin stops working
+     * there instead of polling twenty times a second; because every frame is drawn
+     * from an absolute elapsed time, a label that resumes after being hidden simply
+     * shows the right second rather than replaying the frames it missed. A host
+     * without a frame clock (a test runner) falls back to a plain interval.
+     * @param {() => void} tick - the work to repeat.
+     * @returns {() => void} a stop function.
+     */
+    function startClock(tick) {
+      if (typeof requestAnimationFrame !== 'function' || typeof cancelAnimationFrame !== 'function') {
+        var handle = setInterval(tick, TICK_MS)
+        return function () { clearInterval(handle) }
+      }
+      var frame = 0
+      // Land on the first frame, then not before a tick has passed.
+      var last = -TICK_MS
+      // Leave a frame's slack: three frames of a 60 Hz display are 50 ms, and a
+      // strict comparison would skip every other one.
+      var spacing = TICK_MS - 6
+      var loop = function (now) {
+        frame = requestAnimationFrame(loop)
+        if (now - last < spacing) return
+        last = now
+        tick()
+      }
+      frame = requestAnimationFrame(loop)
+      return function () { cancelAnimationFrame(frame) }
     }
 
     function tickRuntime() {
@@ -1298,7 +1328,7 @@ window.__ModuleLoader__.load({
         liveGlitch.current = null
         saltRef.current = Math.floor(Math.random() * 1e9)
         setFrame(effectFrame(settings, 0, sampleDuration))
-        var timer = setInterval(function () {
+        var stopClock = startClock(function () {
           var elapsed = Date.now() - startedRef.current
           var cycleMs = Math.max(1, Number(settings.cycleSeconds) || DEFAULT_SETTINGS.cycleSeconds) * 1000
           var cycling = settings.phrases.length > 1
@@ -1329,8 +1359,8 @@ window.__ModuleLoader__.load({
             effect: effect,
             salt: saltRef.current,
           }))
-        }, TICK_MS)
-        return function () { clearInterval(timer) }
+        })
+        return stopClock
       }, [key])
       var text = frame.text === '' ? t('form.previewEmpty') : frame.text
       return h('div', {
@@ -1671,10 +1701,9 @@ window.__ModuleLoader__.load({
       ctx.effect(installStyles, 'dsh-thinking-phrase: styles')
 
       ctx.effect(function () {
-        runtimeTimer = setInterval(tickRuntime, TICK_MS)
+        var stop = startClock(tickRuntime)
         return function () {
-          clearInterval(runtimeTimer)
-          runtimeTimer = null
+          stop()
           var elements = document.querySelectorAll('[data-chat-running]')
           for (var i = 0; i < elements.length; i += 1) clearRuntimeElement(elements[i])
         }
@@ -1741,6 +1770,8 @@ window.__ModuleLoader__.load({
     exports.pickDifferentIndex = pickDifferentIndex
     exports.randomStep = randomStep
     exports.effectFrame = effectFrame
+    exports.startClock = startClock
+    exports.TICK_MS = TICK_MS
     exports.readDurationFromElement = readDurationFromElement
     exports.writeFrameToElement = writeFrameToElement
     exports.STYLE_TEXT = STYLE_TEXT

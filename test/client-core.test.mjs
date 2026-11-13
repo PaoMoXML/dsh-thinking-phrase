@@ -824,6 +824,52 @@ test('every effect keeps the full line once it has finished arriving', () => {
   assert.equal(Array.from(core.effectFrame(typing, 0, '3 秒', undefined, null, { effect: 'typewriter' }).text).length, 1)
 })
 
+test('the runtime clock runs on the frame clock at about twenty ticks a second', () => {
+  const frames = []
+  let cancelled = 0
+  globalThis.requestAnimationFrame = (callback) => {
+    frames.push(callback)
+    return frames.length
+  }
+  globalThis.cancelAnimationFrame = () => { cancelled += 1 }
+  try {
+    let ticks = 0
+    const stop = core.startClock(() => { ticks += 1 })
+    // The first frame runs at once, so a fresh label is never a frame behind.
+    frames.pop()(0)
+    assert.equal(ticks, 1)
+    // Frames that arrive too soon are skipped: a 60 Hz display must not turn this
+    // into sixty ticks a second.
+    frames.pop()(16)
+    assert.equal(ticks, 1)
+    frames.pop()(33)
+    assert.equal(ticks, 1)
+    // Once a tick's worth of time has passed, the work runs again.
+    frames.pop()(core.TICK_MS)
+    assert.equal(ticks, 2)
+    frames.pop()(core.TICK_MS + 16)
+    assert.equal(ticks, 2)
+    frames.pop()(core.TICK_MS * 2)
+    assert.equal(ticks, 3)
+    // Stopping cancels the pending frame instead of leaving it queued.
+    const before = cancelled
+    stop()
+    assert.equal(cancelled, before + 1)
+  } finally {
+    delete globalThis.requestAnimationFrame
+    delete globalThis.cancelAnimationFrame
+  }
+})
+
+test('the clock still works where there is no frame clock', () => {
+  // A test runner or an old host has no rAF; the interval fallback must still hand
+  // back a stop function rather than throwing.
+  assert.equal(typeof globalThis.requestAnimationFrame, 'undefined')
+  const stop = core.startClock(() => {})
+  assert.equal(typeof stop, 'function')
+  stop()
+})
+
 test('every copy key the page asks for exists in both dictionaries', () => {
   const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
   const asked = new Set()

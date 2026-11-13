@@ -90,3 +90,10 @@ end. A line wider than the container is still clipped to it.
 
 The settings document is not session data; deleting it only restores the
 default `深度求索中，用时 {duration}` wording.
+
+Both the running label and the preview are driven by the frame clock, throttled
+to about twenty ticks a second. A hidden tab stops painting and therefore stops
+doing this work; because every frame is drawn from an absolute elapsed time, a
+label that resumes simply shows the right second instead of replaying what it
+missed. Each tick only writes the DOM when the frame it computed differs from the
+last one, so a static line costs a couple of microseconds and no writes at all.
