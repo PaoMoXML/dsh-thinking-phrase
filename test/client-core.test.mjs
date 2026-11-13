@@ -603,7 +603,20 @@ test('a salt changes the decode order, and the same salt repeats it', () => {
   assert.ok(orders.size > 1, 'different salts must decode differently')
 })
 
-test('the decode style picks shading blocks or hex data', () => {
+test('every decode noise glyph is full width, so the line never widens', () => {
+  // An equal-width CJK font advances ambiguous glyphs (U+2588 shading blocks and
+  // friends) by half a CJK cell, which made a settling line creep wider. Every
+  // noise glyph must occupy the same cell as the character it replaces.
+  for (const glyph of core.DECODE_STAGES.flat()) {
+    assert.ok(core.isFullWidthGlyph(glyph), 'not a full-width glyph: ' + glyph)
+  }
+  for (const glyph of core.DECODE_HEX) {
+    assert.ok(core.isFullWidthGlyph(glyph), 'not a full-width glyph: ' + glyph)
+  }
+  assert.equal(core.DECODE_HEX.length, 16)
+})
+
+test('the decode style picks shading symbols or hex data', () => {
   const phrase = '深度求索中，用时三秒'
   const blocks = core.decodeText(phrase, 0, 0, 40, 'blocks')
   const hex = core.decodeText(phrase, 0, 0, 40, 'hex')
@@ -615,7 +628,7 @@ test('the decode style picks shading blocks or hex data', () => {
   }
   for (const glyph of blocks) {
     if (glyph === ' ' || [...phrase].includes(glyph)) continue
-    assert.ok(core.DECODE_STAGES.some((palette) => palette.includes(glyph)), 'block noise must stay a block: ' + glyph)
+    assert.ok(core.DECODE_STAGES.some((palette) => palette.includes(glyph)), 'symbol noise must stay in its palette: ' + glyph)
   }
   // Both styles settle to the same real line.
   assert.equal(core.decodeText(phrase, 40 * [...phrase].length, 0, 40, 'hex'), phrase)

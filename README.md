@@ -27,10 +27,12 @@ edit the **思考提示** section on it.
   **解码** (decode: every glyph waits its turn in a scattered order, so the line
   never resolves as a prefix).
 - Decode has two noise styles and its own **解码速度** (10–300 ms per settled
-  glyph, default 40). **灰度块** fades a glyph through three block stages, coarse
-  to fine, before it reads as itself; **十六进制** shows full-width `0-9A-F`
-  instead, as if data were being parsed -- the full-width forms keep each slot the
-  same advance, so the line does not widen as glyphs settle.
+  glyph, default 40). **符号块** fades a glyph through three symbol stages, coarse
+  to fine, before it reads as itself; **十六进制** shows `0-9A-F` instead, as if
+  data were being parsed. Both styles draw only East Asian full-width glyphs: the
+  shading blocks an earlier version used (`█ ▓ ▒ ░`) are "ambiguous" width and an
+  equal-width CJK font advances them by half a cell, which made the line creep
+  wider as each glyph settled.
 - An optional **每条短语随机换效果** switch draws one of the ticked effects on
   every phrase switch, so one run mixes styles; a single tick just keeps that
   effect. Each running label seeds its own draw, so two labels do not replay the

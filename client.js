@@ -40,17 +40,21 @@ window.__ModuleLoader__.load({
      * as a prefix the way a typewriter does.
      */
     var DEFAULT_DECODE_SPEED_MS = 40
-    /** Decode looks like shading blocks, or like raw hex data. */
+    /**
+     * Decode looks like full-width symbols, or like raw hex data.
+     */
     var DECODE_STYLES = ['blocks', 'hex']
     /**
-     * The blocks style's three fading stages, coarse to fine, so a glyph is
-     * visibly being resolved rather than flashed. The hex style ignores these and
-     * draws from {@link DECODE_HEX} instead.
+     * The symbol style's three fading stages, coarse to fine, so a glyph is
+     * visibly being resolved rather than flashed. Every glyph here is East Asian
+     * full width: the shading blocks this used to draw (U+2588 and friends) are
+     * "ambiguous" width, so an equal-width font advanced them by half a CJK glyph
+     * and the line visibly widened as each glyph settled.
      */
     var DECODE_STAGES = [
-      ['█', '▓', '▚'],
-      ['▒', '▞', '▪'],
-      ['░', '▫', '·'],
+      ['〓', '＃', '＠'],
+      ['＊', '＋', '〇'],
+      ['・', '。', '：'],
     ]
     /**
      * The hex style's alphabet, which reads as bytes being parsed. Full-width
@@ -59,7 +63,7 @@ window.__ModuleLoader__.load({
      */
     var DECODE_HEX = '０１２３４５６７８９ＡＢＣＤＥＦ'
     /**
-     * A typo shows punctuation, never the shading blocks a decode uses: the two
+     * A typo shows punctuation, never a full-width symbol a decode draws: the two
      * effects must not read as the same noise.
      */
     var GLITCH_GLYPHS = ['#', '%', '&', '@', '*', '+', '=', '?']
@@ -107,7 +111,7 @@ window.__ModuleLoader__.load({
       'effect.typewriter': 'Typewriter',
       'effect.terminal': 'Command line',
       'effect.decode': 'Decode',
-      'decodeStyle.blocks': 'Shading blocks',
+      'decodeStyle.blocks': 'Symbols',
       'decodeStyle.hex': 'Hex data',
       'form.decodeStyle': 'Decode noise',
       'form.decodeSpeed': 'Decode speed',
@@ -150,7 +154,7 @@ window.__ModuleLoader__.load({
       'effect.typewriter': '打字机',
       'effect.terminal': '命令行',
       'effect.decode': '解码',
-      'decodeStyle.blocks': '灰度块',
+      'decodeStyle.blocks': '符号块',
       'decodeStyle.hex': '十六进制',
       'form.decodeStyle': '解码噪声',
       'form.decodeSpeed': '解码速度',
@@ -457,9 +461,26 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Whether one glyph is East Asian full width, the only width that matches a
+     * CJK character in an equal-width font. Ambiguous glyphs such as the shading
+     * blocks advance by half a CJK glyph there, which makes a settling line widen.
+     * @param {string} glyph - one code point.
+     * @returns {boolean} whether it occupies a full CJK cell.
+     */
+    function isFullWidthGlyph(glyph) {
+      var point = String(glyph).codePointAt(0)
+      if (!Number.isFinite(point)) return false
+      // Fullwidth forms, CJK symbols and punctuation, and the katakana middle dot
+      // are the ranges this plugin draws from; all of them are width F or W.
+      return (point >= 0xff01 && point <= 0xff60)
+        || (point >= 0x3000 && point <= 0x303f)
+        || point === 0x30fb
+    }
+
+    /**
      * Render one decode frame: positions whose rank has come up show their real
      * glyph, the rest show noise, coarse when far from settling and fine when
-     * close. The `blocks` style uses shading blocks, the `hex` style uses hex
+     * close. The `blocks` style draws full-width symbols, the `hex` style uses hex
      * digits, so a decode can read as either a fading scan or raw data.
      * @param {string} text - the fully rendered phrase.
      * @param {number} phraseElapsed - elapsed time inside the current phrase.
@@ -1600,6 +1621,7 @@ window.__ModuleLoader__.load({
     exports.DECODE_STYLES = DECODE_STYLES
     exports.DECODE_STAGES = DECODE_STAGES
     exports.DECODE_HEX = DECODE_HEX
+    exports.isFullWidthGlyph = isFullWidthGlyph
     exports.shouldGlitch = shouldGlitch
     exports.typingProgress = typingProgress
     exports.typingCount = typingCount
