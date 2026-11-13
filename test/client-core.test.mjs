@@ -626,6 +626,21 @@ test('the phrase cap is 25 and the page counts what is typed', () => {
   })
 })
 
+test('a decode style pick never ends up empty, and a dead click leaves the draft alone', () => {
+  // The page refuses to un-tick the last style. `cleanDecodeStyles` is the backstop
+  // for anything that gets past the page, such as a hand-edited document.
+  const empty = core.normalizeSettings({ effect: 'decode', decodeStyles: [] })
+  assert.deepEqual(empty.decodeStyles, ['blocks'])
+  const nulled = core.normalizeSettings({ decodeStyles: null })
+  assert.deepEqual(nulled.decodeStyles, ['blocks'])
+  assert.deepEqual(core.normalizeSettings({ decodeStyles: ['hex', 'rainbow'] }).decodeStyles, ['hex'])
+  // Both halves must agree on the fallback, or a save would rewrite the pick.
+  return import('../lib/store.js').then((host) => {
+    assert.deepEqual(core.normalizeSettings({ decodeStyles: [] }).decodeStyles, host.normalizeSettings({ decodeStyles: [] }).decodeStyles)
+    assert.deepEqual(core.normalizeSettings({ decodeStyles: null }).decodeStyles, host.normalizeSettings({ decodeStyles: null }).decodeStyles)
+  })
+})
+
 test('every decode noise glyph is full width, so the line never widens', () => {
   // An equal-width CJK font advances ambiguous glyphs (U+2588 shading blocks and
   // friends) by half a CJK cell, which made a settling line creep wider. Every
@@ -812,7 +827,9 @@ test('every effect keeps the full line once it has finished arriving', () => {
 test('every copy key the page asks for exists in both dictionaries', () => {
   const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
   const asked = new Set()
-  for (const match of source.matchAll(/(?:\bt|\bsay)\('([a-zA-Z]+\.[a-zA-Z]+)'\)/g)) asked.add(match[1])
+  // A key may be called with interpolation arguments, so the closing delimiter is
+  // either `)` or a comma.
+  for (const match of source.matchAll(/(?:\bt|\bsay)\('([a-zA-Z]+\.[a-zA-Z]+)'\s*[,)]/g)) asked.add(match[1])
   // Keys built by concatenation (`t('decodeStyle.' + id)`) never match the literal
   // pattern, so the prefix is read too and expanded from the list it iterates.
   const prefixes = new Set()
@@ -837,4 +854,22 @@ test('every copy key the page asks for exists in both dictionaries', () => {
     assert.equal(core.COPY.en['effect.' + gone], undefined, 'orphan en key: effect.' + gone)
   }
   assert.equal(core.COPY.zh['form.marqueeHint'], undefined, 'orphan marquee hint')
+})
+
+test('the phrase counter renders its numbers, not its placeholders', () => {
+  // The counter is the one place a placeholder is filled for the reader; a typo in
+  // `{count}`/`{max}` would show raw braces and no test would notice.
+  for (const table of [core.COPY.zh, core.COPY.en]) {
+    const count = table['form.phrasesCount']
+    const over = table['form.phrasesOver']
+    assert.ok(count.includes('{count}') && count.includes('{max}'), 'count copy lost a placeholder: ' + count)
+    assert.ok(over.includes('{count}') && over.includes('{max}'), 'over copy lost a placeholder: ' + over)
+    // Fill it the way the page does and check no braces survive.
+    const filled = count.split('{count}').join('10').split('{max}').join('25')
+    const filledOver = over.split('{count}').join('30').split('{max}').join('25')
+    assert.equal(filled.includes('{'), false, 'unfilled placeholder: ' + filled)
+    assert.equal(filledOver.includes('{'), false, 'unfilled placeholder: ' + filledOver)
+    assert.ok(filled.includes('10') && filled.includes('25'), 'count copy lost its numbers: ' + filled)
+    assert.ok(filledOver.includes('30') && filledOver.includes('25'), 'over copy lost its numbers: ' + filledOver)
+  }
 })

@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Thinking phrase",
-    "description": "Customize the running “Deep diving for …” label: four effects (static, typewriter, command line, and a decode with block or hex noise at an adjustable pace), placeholders for seconds, a spinner and a progress bar, random phrases, a random effect per phrase, and an optional typo that corrects itself."
+    "description": "Customize the running “Deep diving for …” label: four effects (static, typewriter, command line, and a decode with symbol or hex noise that can be ticked together and drawn at random, at an adjustable pace), up to 25 phrases, placeholders for seconds, a spinner and a progress bar, random phrases and effects, and an optional typo that corrects itself."
   }
 }

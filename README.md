@@ -10,8 +10,8 @@ edit the **思考提示** section on it.
 
 ## What it offers
 
-- Any number of one-line phrases; multiple phrases rotate while the model is
-  thinking.
+- Up to 25 one-line phrases, with the field showing how many lines it currently
+  holds against the cap; multiple phrases rotate while the model is thinking.
 - Rotation is in list order, or the next phrase is drawn at random with the
   **随机挑选下一条** switch; a draw never repeats the phrase just shown.
 - `{duration}` is replaced with the live elapsed time, for example

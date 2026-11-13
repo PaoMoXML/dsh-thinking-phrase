@@ -114,7 +114,7 @@ window.__ModuleLoader__.load({
       'decodeStyle.blocks': 'Symbols',
       'decodeStyle.hex': 'Hex data',
       'form.decodeStyle': 'Decode noise (tick one or both)',
-      'form.decodeStyleHint': 'Tick both to draw one at random on each switch.',
+      'form.decodeStyleHint': 'Tick both to draw one at random on each switch; at least one stays ticked.',
       'form.decodeSpeed': 'Decode speed',
       'form.decodeSpeedUnit': 'ms per glyph',
       'form.enabled': 'Show this phrase while the model is thinking',
@@ -160,7 +160,7 @@ window.__ModuleLoader__.load({
       'decodeStyle.blocks': '符号块',
       'decodeStyle.hex': '十六进制',
       'form.decodeStyle': '解码噪声（可多选）',
-      'form.decodeStyleHint': '两个都勾上：每次切换随机挑一种。',
+      'form.decodeStyleHint': '两个都勾上：每次切换随机挑一种；至少保留一个。',
       'form.decodeSpeed': '解码速度',
       'form.decodeSpeedUnit': '毫秒/字',
       'form.enabled': '模型思考时显示自定义提示',
@@ -1127,7 +1127,12 @@ window.__ModuleLoader__.load({
             continue
           }
         }
+        // The attribute gates every style rule; writing the same value again still
+      // makes the engine re-evaluate the attribute selectors, so only write when it
+      // is not already set.
+      if (element.getAttribute('data-dsh-thinking-phrase') !== 'on') {
         element.setAttribute('data-dsh-thinking-phrase', 'on')
+      }
       }
     }
 
@@ -1598,9 +1603,10 @@ window.__ModuleLoader__.load({
               key: id,
               selected: decodeStyles.indexOf(id) !== -1,
               onClick: function () {
-                touch()
-                // One style must stay picked: an empty set has no look to draw.
+                // One style must stay picked, so un-ticking the last one is a no-op
+                // and must not be mistaken for an edit of the draft.
                 if (decodeStyles.indexOf(id) !== -1 && decodeStyles.length === 1) return
+                touch()
                 setDecodeStyles(decodeStyles.indexOf(id) === -1
                   ? DECODE_STYLES.filter(function (candidate) { return candidate === id || decodeStyles.indexOf(candidate) !== -1 })
                   : decodeStyles.filter(function (candidate) { return candidate !== id }))

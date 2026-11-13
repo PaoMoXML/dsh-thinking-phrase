@@ -151,6 +151,29 @@ test('settings store round-trips through an atomic JSON document', async () => {
     assert.match(text, /"glitchChance": 45/)
     assert.match(text, /"randomEffect": true/)
     assert.match(text, /"decodeStyles"/)
+    // The old single-value key is migrated on read and never written back.
+    assert.doesNotMatch(text, /"decodeStyle":/)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('a migrated document writes only the new field', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-thinking-phrase-'))
+  const file = join(directory, 'settings.json')
+  try {
+    const { writeFile } = await import('node:fs/promises')
+    // A document from before the pick existed.
+    await writeFile(file, JSON.stringify({ decodeStyle: 'hex', effect: 'decode' }), 'utf8')
+    const store = createSettingsStore({ file })
+    assert.deepEqual((await store.get()).decodeStyles, ['hex'])
+    await store.put({ decodeStyle: 'hex', effect: 'decode' })
+    const text = await readFile(file, 'utf8')
+    assert.match(text, /"decodeStyles"/)
+    assert.doesNotMatch(text, /"decodeStyle":/)
+    // The new shape wins when both are present, on both halves.
+    const both = { decodeStyle: 'hex', decodeStyles: ['blocks'] }
+    assert.deepEqual(normalizeSettings(both).decodeStyles, ['blocks'])
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
