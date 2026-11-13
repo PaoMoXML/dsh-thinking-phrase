@@ -31,20 +31,17 @@ window.__ModuleLoader__.load({
     var SAVE_TIMEOUT_MS = 8_000
     var TICK_MS = 50
 
-    var EFFECTS = ['default', 'typewriter', 'terminal', 'fade', 'slide', 'wipe', 'blur', 'decode', 'marquee']
+    var EFFECTS = ['default', 'typewriter', 'terminal', 'decode']
     /** The command-line effect's cursor: the text types out behind this glyph. */
     var TERMINAL_CURSOR = '_'
-    /** Wipe: the line is revealed left to right over this long. */
-    var WIPE_MS = 520
-    /** Blur: the line focuses in from this much blur. */
-    var BLUR_MS = 340
-    var BLUR_FROM_PX = 1.6
     /**
      * Decode: one more glyph settles somewhere in the line every this many
-     * milliseconds. The order is scattered, so the line never resolves as a
-     * prefix the way a typewriter does.
+     * milliseconds, by default. The order is scattered, so the line never resolves
+     * as a prefix the way a typewriter does.
      */
-    var DECODE_SETTLE_MS = 40
+    var DEFAULT_DECODE_SPEED_MS = 40
+    /** Decode looks like shading blocks, or like raw hex data. */
+    var DECODE_STYLES = ['blocks', 'hex']
     /**
      * Decode's three fading stages, coarse to fine, so a glyph is visibly being
      * resolved rather than flashed. Blocks keep it apart from a typo's punctuation.
@@ -54,10 +51,13 @@ window.__ModuleLoader__.load({
       ['▒', '▞', '▪'],
       ['░', '▫', '·'],
     ]
-    /** Marquee: one em of travel takes about this long, so one sweep reads calmly. */
-    var MARQUEE_MS_PER_EM = 900
-    /** Rough pixels per em, used only to turn a measured pixel overflow into a pace. */
-    var MARQUEE_PX_PER_EM = 16
+    /** The hex style's alphabet, which reads as bytes being parsed. */
+    var DECODE_HEX = '0123456789ABCDEF'
+    /**
+     * A typo shows punctuation, never the shading blocks a decode uses: the two
+     * effects must not read as the same noise.
+     */
+    var GLITCH_GLYPHS = ['#', '%', '&', '@', '*', '+', '=', '?']
 
     // ── text placeholders a phrase may carry ──────────────────────────────
     /** Braille spinner, one frame per `SPINNER_FRAME_MS` of running time. */
@@ -76,11 +76,6 @@ window.__ModuleLoader__.load({
     // draw is a hash of the event, so it is reproducible and testable.
     /** How long a wrong glyph shows before it corrects itself. */
     var GLITCH_FIX_MS = 160
-    /**
-     * A typo shows punctuation, never the shading blocks a decode uses: the two
-     * effects must not read as the same noise.
-     */
-    var GLITCH_GLYPHS = ['#', '%', '&', '@', '*', '+', '=', '?']
     /** Default share of events that flicker, in percent. */
     var GLITCH_CHANCE = 35
 
@@ -93,6 +88,8 @@ window.__ModuleLoader__.load({
       effect: 'default',
       effectPool: Object.freeze([]),
       randomEffect: false,
+      decodeStyle: 'blocks',
+      decodeSpeedMs: DEFAULT_DECODE_SPEED_MS,
       cycleSeconds: 4,
       typeSpeedMs: 45,
     })
@@ -104,12 +101,12 @@ window.__ModuleLoader__.load({
       'effect.default': 'Default',
       'effect.typewriter': 'Typewriter',
       'effect.terminal': 'Command line',
-      'effect.fade': 'Fade',
-      'effect.slide': 'Slide up',
-      'effect.wipe': 'Wipe in',
-      'effect.blur': 'Focus in',
       'effect.decode': 'Decode',
-      'effect.marquee': 'Scroll',
+      'decodeStyle.blocks': 'Shading blocks',
+      'decodeStyle.hex': 'Hex data',
+      'form.decodeStyle': 'Decode noise',
+      'form.decodeSpeed': 'Decode speed',
+      'form.decodeSpeedUnit': 'ms per glyph',
       'form.enabled': 'Show this phrase while the model is thinking',
       'form.phrases': 'Phrases (one per line; several lines rotate)',
       'form.phrasesPlaceholder': 'Deep diving for {duration}\nThinking hard…',
@@ -125,7 +122,6 @@ window.__ModuleLoader__.load({
       'form.effectPool': 'Effects to draw from',
       'form.effectPoolHint': 'Tick two or more; a single tick just keeps that effect.',
       'form.effectPoolEmpty': 'Nothing ticked yet: the fixed effect above still applies.',
-      'form.marqueeHint': 'Scroll only moves a line longer than the label it replaced, so this preview keeps it still.',
       'form.effect': 'Effect',
       'form.cycle': 'Each phrase lasts',
       'form.seconds': 'seconds',
@@ -148,12 +144,12 @@ window.__ModuleLoader__.load({
       'effect.default': '默认',
       'effect.typewriter': '打字机',
       'effect.terminal': '命令行',
-      'effect.fade': '淡入',
-      'effect.slide': '上滑',
-      'effect.wipe': '揭幕',
-      'effect.blur': '对焦',
       'effect.decode': '解码',
-      'effect.marquee': '平移',
+      'decodeStyle.blocks': '灰度块',
+      'decodeStyle.hex': '十六进制',
+      'form.decodeStyle': '解码噪声',
+      'form.decodeSpeed': '解码速度',
+      'form.decodeSpeedUnit': '毫秒/字',
       'form.enabled': '模型思考时显示自定义提示',
       'form.phrases': '提示文字（每行一条，多条循环播放）',
       'form.phrasesPlaceholder': '深度求索中，用时 {duration}\n正在深度思考…',
@@ -169,7 +165,6 @@ window.__ModuleLoader__.load({
       'form.effectPool': '可选效果',
       'form.effectPoolHint': '勾两个以上；只勾一个就等于固定用它。',
       'form.effectPoolEmpty': '还没勾选：此时仍用上面的固定效果。',
-      'form.marqueeHint': '「平移」只在文案比宿主原来那行更长时移动，所以这里的预览是静止的。',
       'form.effect': '特效',
       'form.cycle': '每条停留',
       'form.seconds': '秒',
@@ -268,6 +263,8 @@ window.__ModuleLoader__.load({
         effect: typeof record.effect === 'string' && EFFECTS.indexOf(record.effect) !== -1 ? record.effect : 'default',
         effectPool: cleanEffects(record.effectPool),
         randomEffect: record.randomEffect === true,
+        decodeStyle: typeof record.decodeStyle === 'string' && DECODE_STYLES.indexOf(record.decodeStyle) !== -1 ? record.decodeStyle : 'blocks',
+        decodeSpeedMs: clampInteger(record.decodeSpeedMs, 10, 300, DEFAULT_DECODE_SPEED_MS),
         cycleSeconds: clampInteger(record.cycleSeconds, 1, 60, DEFAULT_SETTINGS.cycleSeconds),
         typeSpeedMs: clampInteger(record.typeSpeedMs, 10, 300, DEFAULT_SETTINGS.typeSpeedMs),
       }
@@ -427,34 +424,6 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * How much of the line the wipe has revealed, from 0 to 1.
-     * @param {number} phraseElapsed - elapsed time inside the current phrase.
-     * @param {number} [runElapsedMs] - elapsed time on the whole label, so the very
-     *   first phrase wipes in from the label's own start.
-     * @returns {number} the revealed share.
-     */
-    /**
-     * How much of the line the wipe has revealed, from 0 to 1, counted from the
-     * moment the current phrase took over.
-     * @param {number} phraseElapsed - elapsed time inside the current phrase.
-     * @returns {number} the revealed share.
-     */
-    function wipeProgress(phraseElapsed) {
-      return Math.max(0, Math.min(1, Math.max(0, Number(phraseElapsed) || 0) / WIPE_MS))
-    }
-
-    /**
-     * How blurry the line still is, in pixels, counted from the moment the current
-     * phrase took over.
-     * @param {number} phraseElapsed - elapsed time inside the current phrase.
-     * @returns {number} the blur radius.
-     */
-    function blurRadius(phraseElapsed) {
-      var left = Math.max(0, 1 - Math.max(0, Number(phraseElapsed) || 0) / BLUR_MS)
-      return Math.round(left * BLUR_FROM_PX * 100) / 100
-    }
-
-    /**
      * Where in the settle order one position sits. Every position gets its own
      * place, drawn from a hash, so the line fills in scattered rather than left to
      * right -- a prefix is the typewriter's shape, not a decode's.
@@ -470,18 +439,23 @@ window.__ModuleLoader__.load({
 
     /**
      * Render one decode frame: positions whose rank has come up show their real
-     * glyph, the rest show a glyph from a fading stage, coarse when far from
-     * settling and fine when close.
+     * glyph, the rest show noise, coarse when far from settling and fine when
+     * close. The `blocks` style uses shading blocks, the `hex` style uses hex
+     * digits, so a decode can read as either a fading scan or raw data.
      * @param {string} text - the fully rendered phrase.
      * @param {number} phraseElapsed - elapsed time inside the current phrase.
      * @param {number} [salt] - the element's seed, so the noise differs per label.
+     * @param {number} [speedMs] - how long one settle step takes.
+     * @param {string} [style] - `blocks` or `hex`.
      * @returns {string} the decoded frame, same code-point count.
      */
-    function decodeText(text, phraseElapsed, salt) {
+    function decodeText(text, phraseElapsed, salt, speedMs, style) {
       var glyphs = Array.from(String(text))
       var total = glyphs.length
       if (total === 0) return ''
-      var settled = Math.max(0, Math.floor((Number(phraseElapsed) || 0) / DECODE_SETTLE_MS))
+      var step = Math.max(10, Math.round(Number(speedMs) || DEFAULT_DECODE_SPEED_MS))
+      var hex = style === 'hex'
+      var settled = Math.max(0, Math.floor((Number(phraseElapsed) || 0) / step))
       if (settled >= total) return glyphs.join('')
       var out = []
       for (var i = 0; i < total; i += 1) {
@@ -498,31 +472,12 @@ window.__ModuleLoader__.load({
         }
         var left = rank - settled
         var stage = left >= 3 ? 0 : left === 2 ? 1 : 2
-        var palette = DECODE_STAGES[stage]
-        out.push(palette[mix(i * 131 + stage * 17 + (Number(salt) || 0)) % palette.length])
+        var seed = mix(i * 131 + stage * 17 + (Number(salt) || 0))
+        out.push(hex
+          ? DECODE_HEX[seed % DECODE_HEX.length]
+          : DECODE_STAGES[stage][seed % DECODE_STAGES[stage].length])
       }
       return out.join('')
-    }
-
-    /**
-     * How far the line drifts sideways, in pixels, so a phrase wider than its box
-     * can still be read end to end. It sweeps out and back instead of looping, so
-     * the start of the line comes back.
-     * @param {number} phraseElapsed - elapsed time inside the current phrase, so a
-     *   phrase that draws this effect starts its sweep at the switch.
-     * @param {number} overflowPx - how many pixels the line exceeds its box by,
-     *   measured on the live element -- code-point counts are not widths.
-     * @returns {number} a translation in pixels, zero or negative.
-     */
-    function marqueeShift(phraseElapsed, overflowPx) {
-      var span = Math.max(0, Number(overflowPx) || 0)
-      if (span <= 0) return 0
-      var period = Math.max(900, (span / MARQUEE_PX_PER_EM) * MARQUEE_MS_PER_EM)
-      var phase = (Math.max(0, Number(phraseElapsed) || 0) % (period * 2)) / period
-      var eased = phase <= 1 ? phase : 2 - phase
-      var shifted = Math.round(span * eased * 100) / 100
-      // Round first, then flip the sign: `-0` would read as a move in a test.
-      return shifted === 0 ? 0 : -shifted
     }
 
     /**
@@ -709,11 +664,10 @@ window.__ModuleLoader__.load({
      * @param {{index: number, since: number, seed: number} | null} [glitchAt] - a
      *   flicker still in its correction window; the page's "try it" button passes
      *   one even while the switch is off.
-     * @param {{effect?: string, marqueeOverflow?: number, salt?: number}} [view] - the
-     *   effect a step resolved to, how far the line overflows its box in pixels,
+     * @param {{effect?: string, salt?: number}} [view] - the effect a step resolved to
      *   and the element's seed, when the caller picks one per step instead of
      *   reading it from the settings.
-     * @returns {{text: string, opacity: number, shiftX: number, shiftY: number, caret: boolean, wipe: number, blur: number, marquee: number, effect: string}} frame.
+     * @returns {{text: string, opacity: number, shiftX: number, shiftY: number, caret: boolean, effect: string}} frame.
      */
     function effectFrame(settings, runElapsedMs, duration, randomIndex, glitchAt, view) {
       var options = view !== null && view !== undefined && typeof view === 'object' ? view : {}
@@ -731,9 +685,6 @@ window.__ModuleLoader__.load({
         shiftX: 0,
         shiftY: 0,
         caret: false,
-        wipe: 1,
-        blur: 0,
-        marquee: 0,
         effect: effect,
       }
       // A command-line cursor is part of the text, so the flicker must not eat it.
@@ -753,26 +704,8 @@ window.__ModuleLoader__.load({
           frame.text = glyphs.slice(0, shown).join('') + TERMINAL_CURSOR
           reserveTail = 1
         }
-      } else if (effect === 'fade') {
-        var fade = Math.min(1, phraseElapsed / 300)
-        if (cycling) {
-          var remaining = cycleMs - phraseElapsed
-          if (remaining < 350) fade = Math.min(fade, Math.max(0, remaining / 350))
-        }
-        frame.opacity = Math.max(0, Math.min(1, fade))
-      } else if (effect === 'slide') {
-        var progress = Math.min(1, phraseElapsed / 320)
-        var eased = 1 - Math.pow(1 - progress, 3)
-        frame.opacity = Math.max(0, Math.min(1, progress))
-        frame.shiftY = Math.round((1 - eased) * 10 * 100) / 100
-      } else if (effect === 'wipe') {
-        frame.wipe = wipeProgress(phraseElapsed)
-      } else if (effect === 'blur') {
-        frame.blur = blurRadius(phraseElapsed)
       } else if (effect === 'decode') {
-        frame.text = decodeText(full, phraseElapsed, salt)
-      } else if (effect === 'marquee') {
-        frame.marquee = marqueeShift(phraseElapsed, options.marqueeOverflow)
+        frame.text = decodeText(full, phraseElapsed, salt, settings.decodeSpeedMs, settings.decodeStyle)
       }
 
       // A flicker this frame still holds: only a wrong glyph that has not corrected
@@ -963,9 +896,6 @@ window.__ModuleLoader__.load({
       element.style.removeProperty('--dsh-thinking-shift-x')
       element.style.removeProperty('--dsh-thinking-shift-y')
       element.style.removeProperty('--dsh-thinking-caret-width')
-      element.style.removeProperty('--dsh-thinking-wipe')
-      element.style.removeProperty('--dsh-thinking-blur')
-      element.style.removeProperty('--dsh-thinking-marquee')
       var labels = element.querySelectorAll('[data-shimmer-text]')
       for (var i = 0; i < labels.length; i += 1) labels[i].removeAttribute('data-dsh-thinking-phrase-text')
       runStates.delete(element)
@@ -990,43 +920,7 @@ window.__ModuleLoader__.load({
       element.style.setProperty('--dsh-thinking-shift-x', frame.shiftX + 'px')
       element.style.setProperty('--dsh-thinking-shift-y', frame.shiftY + 'px')
       element.style.setProperty('--dsh-thinking-caret-width', frame.caret ? '1px' : '0px')
-      element.style.setProperty('--dsh-thinking-wipe', (Math.round(frame.wipe * 10000) / 100) + '%')
-      element.style.setProperty('--dsh-thinking-blur', frame.blur + 'px')
-      element.style.setProperty('--dsh-thinking-marquee', frame.marquee + 'px')
       return true
-    }
-
-    /**
-     * How many pixels the custom line exceeds its clip box, measured on the live
-     * element. Counting code points instead would be wrong for every line that is
-     * not one em per glyph, and a wrong span leaves the end of a long phrase
-     * unreachable -- or sweeps a short one into blank space. The measurement is
-     * cached against the text and the box width, so a steady line reads the
-     * layout once rather than every tick.
-     * @param {Element} element - the running root.
-     * @param {{marqueeKey?: string, marqueeOverflow?: number}} state - caches the measurement.
-     * @param {string} phraseText - the rendered phrase, its content and not its noise.
-     * @returns {number} pixels of overflow, zero or more.
-     */
-    function measureOverflow(element, state, phraseText) {
-      try {
-        var shimmer = element.querySelector('[data-shimmer]')
-        if (shimmer === null) return 0
-        var node = shimmer.querySelector('[data-shimmer-text]')
-        if (node === null) return 0
-        // The decoration copy carries the same text, so its box is the line's own
-        // width; the root's client width is the window it is clipped to.
-        var key = phraseText.length + '|' + shimmer.clientWidth + '|' + node.scrollWidth
-        if (state.marqueeKey === key && typeof state.marqueeOverflow === 'number') {
-          return state.marqueeOverflow
-        }
-        var span = Math.max(0, node.scrollWidth - shimmer.clientWidth)
-        state.marqueeKey = key
-        state.marqueeOverflow = span
-        return span
-      } catch (error) {
-        return 0
-      }
     }
 
     function tickRuntime() {
@@ -1083,7 +977,6 @@ window.__ModuleLoader__.load({
           duration,
         )
         var textLength = Array.from(phraseText).length
-        var overflow = effect === 'marquee' ? measureOverflow(element, state, phraseText) : 0
         if (currentSettings.glitch === true && glitchAllowed(effect)) {
           state.glitch = advanceGlitch(
             state.glitchState,
@@ -1100,7 +993,6 @@ window.__ModuleLoader__.load({
 
         var frame = effectFrame(currentSettings, elapsed, duration, state.randomIndex, state.glitch, {
           effect: effect,
-          marqueeOverflow: overflow,
           salt: state.salt,
         })
         var key = [
@@ -1110,9 +1002,6 @@ window.__ModuleLoader__.load({
           frame.shiftY.toFixed(2),
           frame.caret ? '1' : '0',
           frame.effect,
-          frame.wipe.toFixed(3),
-          frame.blur.toFixed(2),
-          frame.marquee.toFixed(2),
         ].join('\u0000')
         if (key !== state.frameKey) {
           state.frameKey = key
@@ -1160,34 +1049,6 @@ window.__ModuleLoader__.load({
       '  opacity: var(--dsh-thinking-opacity, 1);',
       '  transform: translateY(var(--dsh-thinking-shift-y, 0px)) translateX(var(--dsh-thinking-shift-x, 0px));',
       '  border-right: var(--dsh-thinking-caret-width, 0px) solid currentColor;',
-      '}',
-      // Wipe: everything past the revealed share is clipped away, so the line
-      // looks brushed in from the left. The sweep copy sits in a layer pinned to
-      // the same box, so it takes the same clip -- otherwise the sweep would run
-      // over glyphs that have not been revealed yet.
-      '[data-chat-running][data-dsh-thinking-phrase="on"] [data-shimmer][data-dsh-thinking-effect="wipe"]::before,',
-      '[data-chat-running][data-dsh-thinking-phrase="on"] [data-shimmer][data-dsh-thinking-effect="wipe"] > span:last-child {',
-      '  clip-path: inset(0 calc(100% - var(--dsh-thinking-wipe, 100%)) 0 0);',
-      '}',
-      // Blur: the line focuses in, and is at full sharpness once the radius is 0.
-      '[data-chat-running][data-dsh-thinking-phrase="on"] [data-shimmer][data-dsh-thinking-effect="blur"]::before,',
-      '[data-chat-running][data-dsh-thinking-phrase="on"] [data-shimmer][data-dsh-thinking-effect="blur"] > span:last-child {',
-      '  filter: blur(var(--dsh-thinking-blur, 0px));',
-      '}',
-      // Marquee: out of flow so the box keeps the stock line's width and the
-      // longer custom line can slide sideways instead of widening the box. The
-      // sweep copy shifts by the same amount, or it would glow over stale glyphs.
-      '[data-chat-running][data-dsh-thinking-phrase="on"] [data-shimmer][data-dsh-thinking-effect="marquee"] {',
-      '  overflow: hidden;',
-      '}',
-      '[data-chat-running][data-dsh-thinking-phrase="on"] [data-shimmer][data-dsh-thinking-effect="marquee"]::before,',
-      '[data-chat-running][data-dsh-thinking-phrase="on"] [data-shimmer][data-dsh-thinking-effect="marquee"] > span:last-child {',
-      '  transform: translateX(var(--dsh-thinking-marquee, 0px));',
-      '}',
-      '[data-chat-running][data-dsh-thinking-phrase="on"] [data-shimmer][data-dsh-thinking-effect="marquee"]::before {',
-      '  position: absolute;',
-      '  inset: 0 auto 0 0;',
-      '  width: max-content;',
       '}',
     ].join('\n')
 
@@ -1284,6 +1145,8 @@ window.__ModuleLoader__.load({
         settings.effect,
         settings.effectPool,
         settings.randomEffect,
+        settings.decodeStyle,
+        settings.decodeSpeedMs,
         settings.cycleSeconds,
         settings.typeSpeedMs,
         sampleDuration,
@@ -1342,7 +1205,6 @@ window.__ModuleLoader__.load({
           var forced = probeGlitch(probeRef, elapsed)
           setFrame(effectFrame(settings, elapsed, sampleDuration, undefined, forced !== null ? forced : liveGlitch.current, {
             effect: effect,
-            marqueeOverflow: 0,
             salt: saltRef.current,
           }))
         }, TICK_MS)
@@ -1368,8 +1230,6 @@ window.__ModuleLoader__.load({
           whiteSpace: 'pre',
           opacity: frame.opacity,
           transform: 'translateY(' + frame.shiftY + 'px)',
-          filter: frame.blur > 0 ? 'blur(' + frame.blur + 'px)' : undefined,
-          clipPath: frame.wipe < 1 ? 'inset(0 ' + ((1 - frame.wipe) * 100).toFixed(2) + '% 0 0)' : undefined,
         },
       }, text))
     }
@@ -1393,6 +1253,8 @@ window.__ModuleLoader__.load({
       var [randomEffect, setRandomEffect] = useState(initial.randomEffect)
       var [cycleSeconds, setCycleSeconds] = useState(String(initial.cycleSeconds))
       var [typeSpeedMs, setTypeSpeedMs] = useState(String(initial.typeSpeedMs))
+      var [decodeStyle, setDecodeStyle] = useState(initial.decodeStyle)
+      var [decodeSpeedMs, setDecodeSpeedMs] = useState(String(initial.decodeSpeedMs))
       var [busy, setBusy] = useState(false)
       var [notice, setNotice] = useState(null)
       var [error, setError] = useState(null)
@@ -1409,6 +1271,8 @@ window.__ModuleLoader__.load({
         effect: effect,
         effectPool: effectPool,
         randomEffect: randomEffect,
+        decodeStyle: decodeStyle,
+        decodeSpeedMs: Number(decodeSpeedMs),
         cycleSeconds: Number(cycleSeconds),
         typeSpeedMs: Number(typeSpeedMs),
       }
@@ -1429,6 +1293,8 @@ window.__ModuleLoader__.load({
         setEffect(settings.effect)
         setEffectPool(settings.effectPool.slice())
         setRandomEffect(settings.randomEffect)
+        setDecodeStyle(settings.decodeStyle)
+        setDecodeSpeedMs(String(settings.decodeSpeedMs))
         setCycleSeconds(String(settings.cycleSeconds))
         setTypeSpeedMs(String(settings.typeSpeedMs))
       }
@@ -1473,6 +1339,8 @@ window.__ModuleLoader__.load({
         setEffect(DEFAULT_SETTINGS.effect)
         setEffectPool(DEFAULT_SETTINGS.effectPool.slice())
         setRandomEffect(DEFAULT_SETTINGS.randomEffect)
+        setDecodeStyle(DEFAULT_SETTINGS.decodeStyle)
+        setDecodeSpeedMs(String(DEFAULT_SETTINGS.decodeSpeedMs))
         setCycleSeconds(String(DEFAULT_SETTINGS.cycleSeconds))
         setTypeSpeedMs(String(DEFAULT_SETTINGS.typeSpeedMs))
         setNotice(null)
@@ -1580,9 +1448,6 @@ window.__ModuleLoader__.load({
         randomEffect ? h('span', { style: { fontSize: '11px', lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' } }, t('form.effectPoolHint')) : null,
         randomEffect && effectPool.length === 0
           ? h('span', { style: { fontSize: '11px', lineHeight: '16px', color: 'var(--dsw-alias-state-error-primary)' } }, t('form.effectPoolEmpty'))
-          : null,
-        (randomEffect ? effectPool.length > 0 && effectPool.indexOf('marquee') !== -1 : effect === 'marquee')
-          ? h('span', { style: { fontSize: '11px', lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' } }, t('form.marqueeHint'))
           : null),
       h('div', { style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '16px' } },
         h(NumberField, {
@@ -1596,6 +1461,25 @@ window.__ModuleLoader__.load({
             label: t('form.typeSpeed'), min: 10, max: 300, value: typeSpeedMs,
             unit: t('form.msPerChar'), onChange: function (value) { touch(); setTypeSpeedMs(value) },
           }) : null),
+      (randomEffect ? effectPool.indexOf('decode') !== -1 : effect === 'decode')
+        ? h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
+          h('span', { style: { fontSize: '12px', fontWeight: 500 } }, t('form.decodeStyle')),
+          h('div', {
+            role: 'group',
+            'aria-label': t('form.decodeStyle'),
+            style: { display: 'flex', flexWrap: 'wrap', gap: '4px', padding: '3px', borderRadius: '9px', background: 'var(--dsw-alias-bg-layer-1)' },
+          }, DECODE_STYLES.map(function (id) {
+            return h(EffectButton, {
+              key: id,
+              selected: decodeStyle === id,
+              onClick: function () { touch(); setDecodeStyle(id) },
+            }, t('decodeStyle.' + id))
+          })),
+          h(NumberField, {
+            label: t('form.decodeSpeed'), min: 10, max: 300, value: decodeSpeedMs,
+            unit: t('form.decodeSpeedUnit'), onChange: function (value) { touch(); setDecodeSpeedMs(value) },
+          }))
+        : null,
       h('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px' } },
         h('span', { style: { fontSize: '12px', fontWeight: 500 } }, t('form.preview')),
         h(Preview, { settings: normalizeSettings(draft), t: t, probeRef: glitchProbeRef })),
@@ -1683,15 +1567,13 @@ window.__ModuleLoader__.load({
     exports.glitchText = glitchText
     exports.cleanEffects = cleanEffects
     exports.resolveEffect = resolveEffect
-    exports.wipeProgress = wipeProgress
-    exports.blurRadius = blurRadius
     exports.decodeText = decodeText
     exports.decodeRank = decodeRank
     exports.glitchAllowed = glitchAllowed
-    exports.measureOverflow = measureOverflow
-    exports.marqueeShift = marqueeShift
-    exports.DECODE_SETTLE_MS = DECODE_SETTLE_MS
+    exports.DEFAULT_DECODE_SPEED_MS = DEFAULT_DECODE_SPEED_MS
+    exports.DECODE_STYLES = DECODE_STYLES
     exports.DECODE_STAGES = DECODE_STAGES
+    exports.DECODE_HEX = DECODE_HEX
     exports.shouldGlitch = shouldGlitch
     exports.typingProgress = typingProgress
     exports.typingCount = typingCount

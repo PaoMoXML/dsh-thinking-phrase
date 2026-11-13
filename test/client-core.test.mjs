@@ -36,7 +36,7 @@ const core = loaded.factory((name) => {
 test('client normalization matches the host contract', () => {
   assert.deepEqual(core.normalizeSettings({
     phrases: [' one ', '', 'two\nignored'],
-    effect: 'fade',
+    effect: 'terminal',
     cycleSeconds: 0,
     typeSpeedMs: 999,
   }), {
@@ -45,9 +45,11 @@ test('client normalization matches the host contract', () => {
     random: false,
     glitch: false,
     glitchChance: 35,
-    effect: 'fade',
+    effect: 'terminal',
     effectPool: [],
     randomEffect: false,
+    decodeStyle: 'blocks',
+    decodeSpeedMs: 40,
     cycleSeconds: 1,
     typeSpeedMs: 300,
   })
@@ -86,16 +88,12 @@ test('typewriter reveals characters and toggles the caret', () => {
   assert.equal(core.effectFrame(settings, 800, '').caret, false)
 })
 
-test('fade and slide clamp opacity and transform', () => {
-  const fade = core.normalizeSettings({ effect: 'fade', phrases: ['a', 'b'], cycleSeconds: 1 })
-  assert.equal(core.effectFrame(fade, 0, '').opacity, 0)
-  assert.ok(core.effectFrame(fade, 300, '').opacity > 0.9)
-  assert.ok(core.effectFrame(fade, 950, '').opacity < 0.3)
-
-  const slide = core.normalizeSettings({ effect: 'slide', phrases: ['a'] })
-  assert.equal(core.effectFrame(slide, 0, '').shiftY, 10)
-  assert.equal(core.effectFrame(slide, 500, '').shiftY, 0)
-  assert.equal(core.effectFrame(slide, 500, '').opacity, 1)
+test('the letterbox is gone: only four effects remain', () => {
+  assert.deepEqual(core.EFFECTS, ['default', 'typewriter', 'terminal', 'decode'])
+  for (const removed of ['fade', 'slide', 'wipe', 'blur', 'marquee']) {
+    assert.equal(core.EFFECTS.includes(removed), false, removed + ' must be gone')
+    assert.equal(core.normalizeSettings({ effect: removed }).effect, 'default', removed + ' must fall back')
+  }
 })
 
 test('styles replace both the normal and shimmer copies of the label', () => {
@@ -105,6 +103,10 @@ test('styles replace both the normal and shimmer copies of the label', () => {
   // The hidden stock line and the custom line share one grid cell, which is what
   // widens the box the clipped shimmer sweep travels in.
   assert.equal((core.STYLE_TEXT.match(/grid-area: 1 \/ 1/g) ?? []).length, 2)
+  // No geometry baggage is left over from the removed effects.
+  for (const gone of ['clip-path', 'filter: blur', 'translateX(var(--dsh-thinking-marquee']) {
+    assert.equal(core.STYLE_TEXT.includes(gone), false, 'leftover CSS: ' + gone)
+  }
 })
 
 test('duration extraction falls back to the visible label', () => {
@@ -137,19 +139,18 @@ test('frame text lands on the shimmer root itself for attr()', () => {
     shiftX: 2,
     shiftY: 3,
     caret: true,
-    wipe: 0.25,
-    blur: 0.8,
-    marquee: -12,
-    effect: 'wipe',
+    effect: 'terminal',
   }), true)
   assert.equal(shimmerAttributes.get('data-dsh-thinking-phrase-text'), 'hello {duration}')
-  assert.equal(shimmerAttributes.get('data-dsh-thinking-effect'), 'wipe', 'the effect attribute drives the CSS branch')
+  assert.equal(shimmerAttributes.get('data-dsh-thinking-effect'), 'terminal', 'the effect attribute names the effect in force')
   assert.equal(labelAttributes.get('data-dsh-thinking-phrase-text'), 'hello {duration}')
   assert.equal(styleProperties.get('--dsh-thinking-opacity'), '0.5')
+  assert.equal(styleProperties.get('--dsh-thinking-shift-x'), '2px')
   assert.equal(styleProperties.get('--dsh-thinking-caret-width'), '1px')
-  assert.equal(styleProperties.get('--dsh-thinking-wipe'), '25%')
-  assert.equal(styleProperties.get('--dsh-thinking-blur'), '0.8px')
-  assert.equal(styleProperties.get('--dsh-thinking-marquee'), '-12px')
+  // The removed effects left no variables behind.
+  assert.equal(styleProperties.has('--dsh-thinking-wipe'), false)
+  assert.equal(styleProperties.has('--dsh-thinking-blur'), false)
+  assert.equal(styleProperties.has('--dsh-thinking-marquee'), false)
 })
 
 test('the configuration page sits on the plugin card, not in Settings', async () => {
@@ -539,33 +540,6 @@ test('the preview restarts when the typo settings move', () => {
   assert.equal(core.previewKey(base, '3 秒'), still)
 })
 
-test('the wipe reveals the line from the switch onward and settles at full', () => {
-  assert.equal(core.wipeProgress(0), 0)
-  assert.equal(core.wipeProgress(260), 0.5)
-  assert.equal(core.wipeProgress(520), 1)
-  assert.equal(core.wipeProgress(9000), 1)
-  // A later phrase wipes from its own switch, because the caller passes the
-  // phrase clock rather than the label clock.
-  assert.equal(core.wipeProgress(-50), 0)
-
-  const settings = core.normalizeSettings({ phrases: ['深度求索中'], effect: 'wipe' })
-  assert.equal(core.effectFrame(settings, 0, '3 秒').wipe, 0)
-  assert.equal(core.effectFrame(settings, 260, '3 秒').wipe, 0.5)
-  assert.equal(core.effectFrame(settings, 2000, '3 秒').wipe, 1)
-})
-
-test('the focus effect sharpens from a blur to nothing', () => {
-  assert.equal(core.blurRadius(0), 1.6)
-  assert.equal(core.blurRadius(170), 0.8)
-  assert.equal(core.blurRadius(340), 0)
-  assert.equal(core.blurRadius(9000), 0)
-  assert.equal(core.blurRadius(-20), 1.6)
-
-  const settings = core.normalizeSettings({ phrases: ['深度求索中'], effect: 'blur' })
-  assert.equal(core.effectFrame(settings, 0, '3 秒').blur, 1.6)
-  assert.equal(core.effectFrame(settings, 1000, '3 秒').blur, 0)
-})
-
 test('the decode effect settles out of order, a glyph at a time', () => {
   const phrase = '深度求索中，用时三秒'
   const total = [...phrase].length
@@ -573,7 +547,7 @@ test('the decode effect settles out of order, a glyph at a time', () => {
 
   // Midway, some positions have settled and most have not -- and the settled ones
   // are not a prefix, which is what separates a decode from a typewriter.
-  const midway = [...core.decodeText(phrase, 5 * core.DECODE_SETTLE_MS)]
+  const midway = [...core.decodeText(phrase, 5 * core.DEFAULT_DECODE_SPEED_MS)]
   const flags = midway.map((glyph, at) => glyph === [...phrase][at])
   const settledNow = flags.filter(Boolean).length
   assert.ok(settledNow > 0 && settledNow < total, 'partial settle expected, got ' + settledNow)
@@ -584,7 +558,7 @@ test('the decode effect settles out of order, a glyph at a time', () => {
   assert.ok(firstNoise < lastSettled, 'the settled set must not be a prefix')
 
   // Long enough and the whole line is real text again.
-  assert.equal(core.decodeText(phrase, core.DECODE_SETTLE_MS * total), phrase)
+  assert.equal(core.decodeText(phrase, core.DEFAULT_DECODE_SPEED_MS * total), phrase)
   // Spaces stay spaces, so word breaks never turn into noise.
   const spaced = core.decodeText('a b', 0)
   assert.equal(spaced[1], ' ')
@@ -596,7 +570,7 @@ test('a decode glyph fades through its stages before it settles', () => {
   const stageOf = new Set()
   const firstGlyphStages = []
   for (let step = 0; step <= [...phrase].length; step += 1) {
-    const frame = [...core.decodeText(phrase, step * core.DECODE_SETTLE_MS)]
+    const frame = [...core.decodeText(phrase, step * core.DEFAULT_DECODE_SPEED_MS)]
     firstGlyphStages.push(frame[1])
     stageOf.add(core.DECODE_STAGES.findIndex((palette) => palette.includes(frame[1])))
   }
@@ -612,11 +586,46 @@ test('a decode glyph fades through its stages before it settles', () => {
 
 test('a salt changes the decode order, and the same salt repeats it', () => {
   const phrase = '深度求索中，用时三秒'
-  const at = core.decodeText(phrase, 3 * core.DECODE_SETTLE_MS, 7)
-  assert.equal(at, core.decodeText(phrase, 3 * core.DECODE_SETTLE_MS, 7))
+  const at = core.decodeText(phrase, 3 * core.DEFAULT_DECODE_SPEED_MS, 7)
+  assert.equal(at, core.decodeText(phrase, 3 * core.DEFAULT_DECODE_SPEED_MS, 7))
   const orders = new Set()
-  for (let salt = 0; salt < 12; salt += 1) orders.add(core.decodeText(phrase, 3 * core.DECODE_SETTLE_MS, salt))
+  for (let salt = 0; salt < 12; salt += 1) orders.add(core.decodeText(phrase, 3 * core.DEFAULT_DECODE_SPEED_MS, salt))
   assert.ok(orders.size > 1, 'different salts must decode differently')
+})
+
+test('the decode style picks shading blocks or hex data', () => {
+  const phrase = '深度求索中，用时三秒'
+  const blocks = core.decodeText(phrase, 0, 0, 40, 'blocks')
+  const hex = core.decodeText(phrase, 0, 0, 40, 'hex')
+  assert.notEqual(blocks, hex)
+  const hexAlpha = new Set(core.DECODE_HEX)
+  for (const glyph of hex) {
+    if (glyph === ' ' || [...phrase].includes(glyph)) continue
+    assert.ok(hexAlpha.has(glyph), 'hex noise must stay in 0-9A-F: ' + glyph)
+  }
+  for (const glyph of blocks) {
+    if (glyph === ' ' || [...phrase].includes(glyph)) continue
+    assert.ok(core.DECODE_STAGES.some((palette) => palette.includes(glyph)), 'block noise must stay a block: ' + glyph)
+  }
+  // Both styles settle to the same real line.
+  assert.equal(core.decodeText(phrase, 40 * [...phrase].length, 0, 40, 'hex'), phrase)
+})
+
+test('the decode speed sets how fast glyphs settle', () => {
+  const phrase = '深度求索中，用时三秒'
+  const total = [...phrase].length
+  const fast = core.decodeText(phrase, 200, 0, 10, 'blocks')
+  const slow = core.decodeText(phrase, 200, 0, 200, 'blocks')
+  const settledOnes = (text) => [...text].filter((glyph, at) => glyph === [...phrase][at]).length
+  assert.ok(settledOnes(fast) > settledOnes(slow), 'a smaller step must settle more glyphs')
+  // A speed out of range is pulled back to what the host would store.
+  const settings = core.normalizeSettings({ phrases: [phrase], effect: 'decode', decodeSpeedMs: 1 })
+  assert.equal(settings.decodeSpeedMs, 10)
+  assert.equal(
+    core.effectFrame(settings, 400, '3 秒', undefined, null, { effect: 'decode', salt: 1 }).text,
+    core.decodeText(core.renderText(phrase, 400, '3 秒'), 400, 1, 10, 'blocks'),
+  )
+  assert.ok(total > 0)
 })
 
 test('the two noise effects keep different glyph sets', () => {
@@ -639,34 +648,17 @@ test('a decode never raises an automatic typo', () => {
   assert.notEqual(pressed, plain)
 })
 
-test('the scroll effect moves by real pixels and comes back', () => {
-  assert.equal(core.marqueeShift(0, 0), 0)
-  assert.equal(core.marqueeShift(5000, 0), 0)
-  assert.equal(core.marqueeShift(0, 120), 0)
-  // A 120px overflow sweeps out over about half a period and returns to the start.
-  const period = Math.max(900, (120 / 16) * 900)
-  assert.equal(core.marqueeShift(period, 120), -120)
-  assert.equal(core.marqueeShift(period * 2, 120), 0)
-  const out = core.marqueeShift(period / 2, 120)
-  assert.ok(out < 0 && out > -120, 'halfway out: ' + out)
-  // Never past the overflow, and never positive.
-  for (let at = 0; at < period * 3; at += 137) {
-    const shift = core.marqueeShift(at, 120)
-    assert.ok(shift <= 0 && shift >= -120, 'shift out of range at ' + at + ': ' + shift)
-  }
-})
-
 test('a pool draws a chosen effect per step, and never leaves the pool', () => {
   const settings = core.normalizeSettings({
     phrases: ['a', 'b'],
-    effect: 'slide',
-    effectPool: ['wipe', 'decode', 'blur'],
+    effect: 'terminal',
+    effectPool: ['decode', 'typewriter', 'terminal'],
     randomEffect: true,
   })
   const seen = new Set()
   for (let step = 1; step < 40; step += 1) {
     const picked = core.resolveEffect(settings, step, 0)
-    assert.ok(['wipe', 'decode', 'blur'].includes(picked), 'picked outside the pool: ' + picked)
+    assert.ok(['decode', 'typewriter', 'terminal'].includes(picked), 'picked outside the pool: ' + picked)
     seen.add(picked)
   }
   assert.equal(seen.size, 3, 'every pooled effect should come up: ' + [...seen].join(','))
@@ -674,17 +666,17 @@ test('a pool draws a chosen effect per step, and never leaves the pool', () => {
   assert.equal(core.resolveEffect(settings, 7, 0), core.resolveEffect(settings, 7, 0))
 
   // Switch off, or an empty pool: the fixed effect wins.
-  const fixed = core.normalizeSettings({ phrases: ['a'], effect: 'slide', effectPool: ['wipe'], randomEffect: false })
-  assert.equal(core.resolveEffect(fixed, 5, 0), 'slide')
-  const empty = core.normalizeSettings({ phrases: ['a'], effect: 'fade', randomEffect: true })
-  assert.equal(core.resolveEffect(empty, 5, 0), 'fade')
+  const fixed = core.normalizeSettings({ phrases: ['a'], effect: 'terminal', effectPool: ['decode'], randomEffect: false })
+  assert.equal(core.resolveEffect(fixed, 5, 0), 'terminal')
+  const empty = core.normalizeSettings({ phrases: ['a'], effect: 'decode', randomEffect: true })
+  assert.equal(core.resolveEffect(empty, 5, 0), 'decode')
 })
 
 test('a pool draw differs per label but holds within one', () => {
   const settings = core.normalizeSettings({
     phrases: ['a', 'b'],
-    effect: 'slide',
-    effectPool: ['wipe', 'decode', 'blur', 'marquee'],
+    effect: 'terminal',
+    effectPool: ['decode', 'typewriter', 'terminal', 'default'],
     randomEffect: true,
   })
   const firstOfLabel = new Set()
@@ -695,7 +687,7 @@ test('a pool draw differs per label but holds within one', () => {
   // A salt never pushes the draw outside the pool.
   for (let salt = 0; salt < 30; salt += 1) {
     for (let step = 0; step < 12; step += 1) {
-      assert.ok(['wipe', 'decode', 'blur', 'marquee'].includes(core.resolveEffect(settings, step, 0, salt)))
+      assert.ok(['decode', 'typewriter', 'terminal', 'default'].includes(core.resolveEffect(settings, step, 0, salt)))
     }
   }
 })
@@ -705,13 +697,12 @@ test('every effect keeps the full line once it has finished arriving', () => {
   const expected = Array.from('深度求索中，用时 3 秒').length
   for (const effect of core.EFFECTS) {
     const settings = core.normalizeSettings({ phrases: [phrase], effect, typeSpeedMs: 10 })
-    // Far past every arrival, wipe, blur and decode, so only the full line remains.
-    const settled = core.effectFrame(settings, 60000, '3 秒', undefined, null, { effect, marqueeOverflow: 0 })
+    // Far past every arrival and every decode step, so only the full line remains.
+    const settled = core.effectFrame(settings, 60000, '3 秒', undefined, null, { effect })
     assert.equal(settled.effect, effect, effect + ' did not report its own effect')
     assert.equal(Array.from(settled.text).length, expected, effect + ' lost part of the line')
-    assert.ok(settled.wipe >= 0 && settled.wipe <= 1, effect + ' wipe out of range')
-    assert.ok(settled.blur >= 0, effect + ' blur out of range')
-    assert.ok(settled.marquee <= 0, effect + ' marquee must never push right')
+    assert.ok(settled.opacity >= 0 && settled.opacity <= 1, effect + ' opacity out of range')
+    assert.equal(typeof settled.caret, 'boolean', effect + ' caret must be a boolean')
   }
   // Typewriter really does type, so at the very first frame it shows one glyph.
   const typing = core.normalizeSettings({ phrases: [phrase], effect: 'typewriter', typeSpeedMs: 100 })

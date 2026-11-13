@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   DEFAULT_SETTINGS,
+  DECODE_STYLES,
   EFFECTS,
   cleanEffects,
   cleanPhrases,
@@ -22,17 +23,31 @@ test('default settings reproduce the stock label', () => {
     effect: 'default',
     effectPool: [],
     randomEffect: false,
+    decodeStyle: 'blocks',
+    decodeSpeedMs: 40,
     cycleSeconds: 4,
     typeSpeedMs: 45,
   })
-  assert.deepEqual(EFFECTS, ['default', 'typewriter', 'terminal', 'fade', 'slide', 'wipe', 'blur', 'decode', 'marquee'])
+  assert.deepEqual(EFFECTS, ['default', 'typewriter', 'terminal', 'decode'])
+  assert.deepEqual(DECODE_STYLES, ['blocks', 'hex'])
+})
+
+test('the decode settings narrow to their own shape', () => {
+  assert.equal(normalizeSettings({ decodeStyle: 'hex' }).decodeStyle, 'hex')
+  assert.equal(normalizeSettings({ decodeStyle: 'rainbow' }).decodeStyle, 'blocks')
+  assert.equal(normalizeSettings({ decodeSpeedMs: 5 }).decodeSpeedMs, 10)
+  assert.equal(normalizeSettings({ decodeSpeedMs: 9999 }).decodeSpeedMs, 300)
+  assert.equal(normalizeSettings({ decodeSpeedMs: '80' }).decodeSpeedMs, 80)
+  assert.equal(normalizeSettings(undefined).decodeSpeedMs, 40)
 })
 
 test('the effect pool keeps known effects, in order, without repeats', () => {
-  assert.deepEqual(cleanEffects(['decode', 'wipe', 'decode', 'nope', 42]), ['wipe', 'decode'])
+  assert.deepEqual(cleanEffects(['decode', 'terminal', 'decode', 'nope', 42]), ['terminal', 'decode'])
   assert.deepEqual(cleanEffects([]), [])
   assert.deepEqual(cleanEffects(undefined), [])
-  assert.deepEqual(cleanEffects('wipe'), [])
+  assert.deepEqual(cleanEffects('decode'), [])
+  // An effect this build no longer offers is dropped, not carried as a stale pick.
+  assert.deepEqual(cleanEffects(['wipe', 'decode']), ['decode'])
 })
 
 test('the host narrows the random switch to a boolean', () => {
@@ -77,6 +92,8 @@ test('normalizeSettings repairs unknown and out-of-range values', () => {
     effect: 'default',
     effectPool: [],
     randomEffect: false,
+    decodeStyle: 'blocks',
+    decodeSpeedMs: 40,
     cycleSeconds: 60,
     typeSpeedMs: 10,
   })
@@ -103,15 +120,18 @@ test('settings store round-trips through an atomic JSON document', async () => {
       glitch: true,
       glitchChance: 45,
       effect: 'typewriter',
-      effectPool: ['wipe', 'decode'],
+      effectPool: ['decode', 'terminal'],
       randomEffect: true,
+      decodeStyle: 'hex',
+      decodeSpeedMs: 90,
       cycleSeconds: 7,
       typeSpeedMs: 30,
     })
     assert.equal(saved.effect, 'typewriter')
     assert.equal(saved.glitch, true)
-    assert.deepEqual(saved.effectPool, ['wipe', 'decode'])
+    assert.deepEqual(saved.effectPool, ['terminal', 'decode'])
     assert.equal(saved.randomEffect, true)
+    assert.equal(saved.decodeStyle, 'hex')
     assert.deepEqual(await store.get(), saved)
 
     const text = await readFile(file, 'utf8')
@@ -119,6 +139,7 @@ test('settings store round-trips through an atomic JSON document', async () => {
     assert.match(text, /"glitch": true/)
     assert.match(text, /"glitchChance": 45/)
     assert.match(text, /"randomEffect": true/)
+    assert.match(text, /"decodeStyle": "hex"/)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

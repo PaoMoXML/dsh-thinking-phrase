@@ -22,13 +22,14 @@ edit the **思考提示** section on it.
   and `{bar}` (one `█` per second over eight cells, then held full). The spinner
   and the bar measure the whole running period, so a rotating phrase list still
   shows them moving.
-- Nine effects: **默认** (static), **打字机** (typewriter), **命令行** (command
+- Four effects: **默认** (static), **打字机** (typewriter), **命令行** (command
   line: the text types out behind a `_` cursor, `_` → `你_` → `你好_` → `你好啊`),
-  **淡入** (fade), **上滑** (slide up), **揭幕** (wipe in from the left), **对焦**
-  (focus in from a blur), **解码** (decode: every glyph waits its turn in a
-  scattered order, fading through three noise stages before it reads as itself),
-  **平移** (scroll: a line longer than the label it replaced sweeps sideways and
-  back, measured in pixels on the live element, so the end stays readable).
+  **解码** (decode: every glyph waits its turn in a scattered order, so the line
+  never resolves as a prefix, fading through three noise stages before it reads as
+  itself).
+- Decode has two noise styles, **灰度块** (shading blocks) and **十六进制** (hex
+  digits `0-9A-F`, as if data were being parsed), and its own **解码速度**
+  (10–300 ms per settled glyph, default 40).
 - An optional **每条短语随机换效果** switch draws one of the ticked effects on
   every phrase switch, so one run mixes styles; a single tick just keeps that
   effect. Each running label seeds its own draw, so two labels do not replay the
@@ -44,9 +45,11 @@ edit the **思考提示** section on it.
   count, the first glyph and a command-line cursor are never spoiled, the first
   observation of a label only records its baseline, and a switch ends any typo the
   previous phrase was still showing. An effect that types spoils its first glyph on
-  a switch; an effect that shows the whole line spoils two of them. The
-  configuration page's **试一次** button forces one flicker on demand, even while
-  the switch is off. It is off by default.
+  a switch; an effect that shows the whole line spoils two of them. A decode frame
+  never raises an automatic typo -- it is already full of noise -- though the
+  page's **试一次** button still reaches it. The configuration page's **试一次**
+  button forces one flicker on demand, even while the switch is off. It is off by
+  default.
 - Per-phrase dwell time and typewriter speed.
 - A live preview in the configuration section.
 - The preference document is stored at
@@ -79,11 +82,7 @@ clips the shimmer sweep is pinned to that box. The hidden stock line and the
 custom line therefore share one grid cell, so the box is as wide as the longer
 of the two; painted out of flow, a custom line longer than the stock label (or
 one rendered at a larger UI font) used to stop the sweep at the stock label's
-end. A line wider than the container is still clipped to it -- unless the
-**平移** effect is on, which takes the custom line out of flow so the box stays
-at the stock width and the line can scroll inside it. Wipe, blur and scroll
-apply the same geometry to the sweep copy, so the glow never runs over glyphs
-the reader cannot see yet.
+end. A line wider than the container is still clipped to it.
 
 The settings document is not session data; deleting it only restores the
 default `深度求索中，用时 {duration}` wording.
