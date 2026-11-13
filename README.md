@@ -32,7 +32,8 @@ edit the **思考提示** section on it.
   data were being parsed. Both styles draw only East Asian full-width glyphs: the
   shading blocks an earlier version used (`█ ▓ ▒ ░`) are "ambiguous" width and an
   equal-width CJK font advances them by half a cell, which made the line creep
-  wider as each glyph settled.
+  wider as each glyph settled. Tick both styles and each switch draws one at
+  random, the way the effect pool does; a tick of one fixes it.
 - An optional **每条短语随机换效果** switch draws one of the ticked effects on
   every phrase switch, so one run mixes styles; a single tick just keeps that
   effect. Each running label seeds its own draw, so two labels do not replay the

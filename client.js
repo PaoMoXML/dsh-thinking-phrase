@@ -97,7 +97,7 @@ window.__ModuleLoader__.load({
       effect: 'default',
       effectPool: Object.freeze([]),
       randomEffect: false,
-      decodeStyle: 'blocks',
+      decodeStyles: Object.freeze(['blocks']),
       decodeSpeedMs: DEFAULT_DECODE_SPEED_MS,
       cycleSeconds: 4,
       typeSpeedMs: 45,
@@ -113,7 +113,8 @@ window.__ModuleLoader__.load({
       'effect.decode': 'Decode',
       'decodeStyle.blocks': 'Symbols',
       'decodeStyle.hex': 'Hex data',
-      'form.decodeStyle': 'Decode noise',
+      'form.decodeStyle': 'Decode noise (tick one or both)',
+      'form.decodeStyleHint': 'Tick both to draw one at random on each switch.',
       'form.decodeSpeed': 'Decode speed',
       'form.decodeSpeedUnit': 'ms per glyph',
       'form.enabled': 'Show this phrase while the model is thinking',
@@ -156,7 +157,8 @@ window.__ModuleLoader__.load({
       'effect.decode': '解码',
       'decodeStyle.blocks': '符号块',
       'decodeStyle.hex': '十六进制',
-      'form.decodeStyle': '解码噪声',
+      'form.decodeStyle': '解码噪声（可多选）',
+      'form.decodeStyleHint': '两个都勾上：每次切换随机挑一种。',
       'form.decodeSpeed': '解码速度',
       'form.decodeSpeedUnit': '毫秒/字',
       'form.enabled': '模型思考时显示自定义提示',
@@ -261,6 +263,45 @@ window.__ModuleLoader__.load({
       return pool
     }
 
+    /**
+     * Keep only known decode styles, in the canonical order, without repeats. An
+     * empty pick falls back to the symbol style, so the effect always has a look.
+     * @param {unknown} value - raw picked styles.
+     * @returns {string[]} one or more styles.
+     */
+    function cleanDecodeStyles(value) {
+      var list = Array.isArray(value) ? value : (typeof value === 'string' ? [value] : [])
+      var picked = {}
+      for (var i = 0; i < list.length; i += 1) {
+        var item = list[i]
+        if (typeof item === 'string' && DECODE_STYLES.indexOf(item) !== -1) picked[item] = true
+      }
+      var styles = []
+      for (var j = 0; j < DECODE_STYLES.length; j += 1) {
+        if (picked[DECODE_STYLES[j]] === true) styles.push(DECODE_STYLES[j])
+      }
+      return styles.length > 0 ? styles : ['blocks']
+    }
+
+    /**
+     * Which decode style one step draws. With more than one style ticked, each
+     * switch picks among them, seeded like the effect pool so a phrase never
+     * changes its noise mid-line.
+     * @param {ReturnType<typeof normalizeSettings>} settings - accepted settings.
+     * @param {number} step - rotation step now.
+     * @param {number} phraseIndex - which phrase is showing.
+     * @param {number} [salt] - the element's seed.
+     * @returns {string} one of {@link DECODE_STYLES}.
+     */
+    function resolveDecodeStyle(settings, step, phraseIndex, salt) {
+      var styles = cleanDecodeStyles(settings.decodeStyles)
+      if (styles.length === 1) return styles[0]
+      var slot = Math.max(0, Math.floor(Number(step) || 0))
+      var seed = Math.max(0, Math.floor(Number(salt) || 0))
+      var index = mix(mix(slot + seed + 7) + (Math.max(0, Math.floor(Number(phraseIndex) || 0)) * 131) + 53) % styles.length
+      return styles[index] !== undefined ? styles[index] : styles[0]
+    }
+
     function normalizeSettings(raw) {
       var record = raw !== null && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
       return {
@@ -272,7 +313,9 @@ window.__ModuleLoader__.load({
         effect: typeof record.effect === 'string' && EFFECTS.indexOf(record.effect) !== -1 ? record.effect : 'default',
         effectPool: cleanEffects(record.effectPool),
         randomEffect: record.randomEffect === true,
-        decodeStyle: typeof record.decodeStyle === 'string' && DECODE_STYLES.indexOf(record.decodeStyle) !== -1 ? record.decodeStyle : 'blocks',
+        // `decodeStyle` is the single-value shape this field had before styles
+        // became a pick; an old document is read through it and then rewritten.
+        decodeStyles: cleanDecodeStyles(record.decodeStyles !== undefined ? record.decodeStyles : record.decodeStyle),
         decodeSpeedMs: clampInteger(record.decodeSpeedMs, 10, 300, DEFAULT_DECODE_SPEED_MS),
         cycleSeconds: clampInteger(record.cycleSeconds, 1, 60, DEFAULT_SETTINGS.cycleSeconds),
         typeSpeedMs: clampInteger(record.typeSpeedMs, 10, 300, DEFAULT_SETTINGS.typeSpeedMs),
@@ -747,7 +790,13 @@ window.__ModuleLoader__.load({
           reserveTail = 1
         }
       } else if (effect === 'decode') {
-        frame.text = decodeText(full, phraseElapsed, salt, settings.decodeSpeedMs, settings.decodeStyle)
+        frame.text = decodeText(
+          full,
+          phraseElapsed,
+          salt,
+          settings.decodeSpeedMs,
+          resolveDecodeStyle(settings, Math.floor(runElapsedMs / cycleMs), index, salt),
+        )
       }
 
       // A flicker this frame still holds: only a wrong glyph that has not corrected
@@ -1187,7 +1236,7 @@ window.__ModuleLoader__.load({
         settings.effect,
         settings.effectPool,
         settings.randomEffect,
-        settings.decodeStyle,
+        settings.decodeStyles,
         settings.decodeSpeedMs,
         settings.cycleSeconds,
         settings.typeSpeedMs,
@@ -1295,7 +1344,7 @@ window.__ModuleLoader__.load({
       var [randomEffect, setRandomEffect] = useState(initial.randomEffect)
       var [cycleSeconds, setCycleSeconds] = useState(String(initial.cycleSeconds))
       var [typeSpeedMs, setTypeSpeedMs] = useState(String(initial.typeSpeedMs))
-      var [decodeStyle, setDecodeStyle] = useState(initial.decodeStyle)
+      var [decodeStyles, setDecodeStyles] = useState(initial.decodeStyles.slice())
       var [decodeSpeedMs, setDecodeSpeedMs] = useState(String(initial.decodeSpeedMs))
       var [busy, setBusy] = useState(false)
       var [notice, setNotice] = useState(null)
@@ -1313,7 +1362,7 @@ window.__ModuleLoader__.load({
         effect: effect,
         effectPool: effectPool,
         randomEffect: randomEffect,
-        decodeStyle: decodeStyle,
+        decodeStyles: decodeStyles,
         decodeSpeedMs: Number(decodeSpeedMs),
         cycleSeconds: Number(cycleSeconds),
         typeSpeedMs: Number(typeSpeedMs),
@@ -1339,7 +1388,7 @@ window.__ModuleLoader__.load({
         setEffect(settings.effect)
         setEffectPool(settings.effectPool.slice())
         setRandomEffect(settings.randomEffect)
-        setDecodeStyle(settings.decodeStyle)
+        setDecodeStyles(settings.decodeStyles.slice())
         setDecodeSpeedMs(String(settings.decodeSpeedMs))
         setCycleSeconds(String(settings.cycleSeconds))
         setTypeSpeedMs(String(settings.typeSpeedMs))
@@ -1385,7 +1434,7 @@ window.__ModuleLoader__.load({
         setEffect(DEFAULT_SETTINGS.effect)
         setEffectPool(DEFAULT_SETTINGS.effectPool.slice())
         setRandomEffect(DEFAULT_SETTINGS.randomEffect)
-        setDecodeStyle(DEFAULT_SETTINGS.decodeStyle)
+        setDecodeStyles(DEFAULT_SETTINGS.decodeStyles.slice())
         setDecodeSpeedMs(String(DEFAULT_SETTINGS.decodeSpeedMs))
         setCycleSeconds(String(DEFAULT_SETTINGS.cycleSeconds))
         setTypeSpeedMs(String(DEFAULT_SETTINGS.typeSpeedMs))
@@ -1507,10 +1556,18 @@ window.__ModuleLoader__.load({
           }, DECODE_STYLES.map(function (id) {
             return h(EffectButton, {
               key: id,
-              selected: decodeStyle === id,
-              onClick: function () { touch(); setDecodeStyle(id) },
+              selected: decodeStyles.indexOf(id) !== -1,
+              onClick: function () {
+                touch()
+                // One style must stay picked: an empty set has no look to draw.
+                if (decodeStyles.indexOf(id) !== -1 && decodeStyles.length === 1) return
+                setDecodeStyles(decodeStyles.indexOf(id) === -1
+                  ? DECODE_STYLES.filter(function (candidate) { return candidate === id || decodeStyles.indexOf(candidate) !== -1 })
+                  : decodeStyles.filter(function (candidate) { return candidate !== id }))
+              },
             }, t('decodeStyle.' + id))
           })),
+          h('span', { style: { fontSize: '11px', lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' } }, t('form.decodeStyleHint')),
           h(NumberField, {
             label: t('form.decodeSpeed'), min: 10, max: 300, value: decodeSpeedMs,
             unit: t('form.decodeSpeedUnit'), onChange: function (value) { touch(); setDecodeSpeedMs(value) },
@@ -1612,7 +1669,9 @@ window.__ModuleLoader__.load({
     exports.renderText = renderText
     exports.glitchText = glitchText
     exports.cleanEffects = cleanEffects
+    exports.cleanDecodeStyles = cleanDecodeStyles
     exports.resolveEffect = resolveEffect
+    exports.resolveDecodeStyle = resolveDecodeStyle
     exports.activeEffects = activeEffects
     exports.decodeText = decodeText
     exports.decodeRank = decodeRank

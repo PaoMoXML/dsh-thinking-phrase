@@ -48,7 +48,7 @@ test('client normalization matches the host contract', () => {
     effect: 'terminal',
     effectPool: [],
     randomEffect: false,
-    decodeStyle: 'blocks',
+    decodeStyles: ['blocks'],
     decodeSpeedMs: 40,
     cycleSeconds: 1,
     typeSpeedMs: 300,
@@ -316,7 +316,7 @@ test('the browser and host agree on defaults and normalization', async () => {
     effect: 'terminal',
     effectPool: ['decode', 'terminal'],
     randomEffect: true,
-    decodeStyle: 'hex',
+    decodeStyles: ['blocks', 'hex'],
     decodeSpeedMs: 90,
     cycleSeconds: 999,
     typeSpeedMs: -1,
@@ -332,6 +332,12 @@ test('the browser and host agree on defaults and normalization', async () => {
   // The decode alphabet and style list are written twice; a split there would mean
   // the page offers a style the host silently renames on save.
   assert.deepEqual(core.DECODE_STYLES, host.DECODE_STYLES)
+  // The style pick's cleaning is written twice as well.
+  const styles = { decodeStyles: ['hex', 'blocks', 'hex', 'rainbow'] }
+  assert.deepEqual(core.cleanDecodeStyles(styles.decodeStyles), host.cleanDecodeStyles(styles.decodeStyles))
+  assert.deepEqual(core.normalizeSettings(styles).decodeStyles, host.normalizeSettings(styles).decodeStyles)
+  // A document from before the pick still reads on both sides.
+  assert.deepEqual(core.normalizeSettings({ decodeStyle: 'hex' }).decodeStyles, host.normalizeSettings({ decodeStyle: 'hex' }).decodeStyles)
   // An effect the host no longer lists must fall back on both sides.
   assert.equal(core.normalizeSettings({ effect: 'wipe' }).effect, host.normalizeSettings({ effect: 'wipe' }).effect)
 })
@@ -713,6 +719,30 @@ test('a pool draw differs per label but holds within one', () => {
       assert.ok(['decode', 'typewriter', 'terminal', 'default'].includes(core.resolveEffect(settings, step, 0, salt)))
     }
   }
+})
+
+test('two ticked decode styles are drawn per switch, one is fixed', () => {
+  const both = core.normalizeSettings({ phrases: ['a', 'b'], effect: 'decode', decodeStyles: ['blocks', 'hex'] })
+  const seen = new Set()
+  for (let step = 1; step < 40; step += 1) seen.add(core.resolveDecodeStyle(both, step, 0, 1))
+  assert.deepEqual([...seen].sort(), ['blocks', 'hex'], 'both ticked styles should come up')
+  // One step never changes its look, whatever the tick.
+  assert.equal(core.resolveDecodeStyle(both, 7, 0, 1), core.resolveDecodeStyle(both, 7, 0, 1))
+  // A different label seed opens differently.
+  const openings = new Set()
+  for (let salt = 1; salt <= 20; salt += 1) openings.add(core.resolveDecodeStyle(both, 0, 0, salt))
+  assert.equal(openings.size, 2, 'a new label may open with either style')
+
+  // A single tick is simply that style.
+  const single = core.normalizeSettings({ effect: 'decode', decodeStyles: ['hex'] })
+  for (let step = 0; step < 20; step += 1) assert.equal(core.resolveDecodeStyle(single, step, 0, 3), 'hex')
+  // An empty pick still has a look, and the frames follow the picked style.
+  const empty = core.normalizeSettings({ effect: 'decode', decodeStyles: [] })
+  assert.equal(core.resolveDecodeStyle(empty, 0, 0, 0), 'blocks')
+
+  const styled = core.normalizeSettings({ phrases: ['深度求索中'], effect: 'decode', decodeStyles: ['hex'] })
+  const frame = core.effectFrame(styled, 0, '3 秒', undefined, null, { effect: 'decode', salt: 2 }).text
+  assert.equal(frame, core.decodeText('深度求索中', 0, 2, styled.decodeSpeedMs, 'hex'))
 })
 
 test('the decode speed is clamped the same way the settings are', () => {

@@ -7,6 +7,7 @@ import {
   DEFAULT_SETTINGS,
   DECODE_STYLES,
   EFFECTS,
+  cleanDecodeStyles,
   cleanEffects,
   cleanPhrases,
   createSettingsStore,
@@ -23,7 +24,7 @@ test('default settings reproduce the stock label', () => {
     effect: 'default',
     effectPool: [],
     randomEffect: false,
-    decodeStyle: 'blocks',
+    decodeStyles: ['blocks'],
     decodeSpeedMs: 40,
     cycleSeconds: 4,
     typeSpeedMs: 45,
@@ -32,9 +33,16 @@ test('default settings reproduce the stock label', () => {
   assert.deepEqual(DECODE_STYLES, ['blocks', 'hex'])
 })
 
-test('the decode settings narrow to their own shape', () => {
-  assert.equal(normalizeSettings({ decodeStyle: 'hex' }).decodeStyle, 'hex')
-  assert.equal(normalizeSettings({ decodeStyle: 'rainbow' }).decodeStyle, 'blocks')
+test('the decode styles are a pick, and an empty pick still has a look', () => {
+  assert.deepEqual(cleanDecodeStyles(['hex']), ['hex'])
+  assert.deepEqual(cleanDecodeStyles(['hex', 'blocks']), ['blocks', 'hex'])
+  assert.deepEqual(cleanDecodeStyles(['hex', 'hex', 'rainbow', 42]), ['hex'])
+  assert.deepEqual(cleanDecodeStyles([]), ['blocks'])
+  assert.deepEqual(cleanDecodeStyles(undefined), ['blocks'])
+  // A document written before this field became a pick still reads.
+  assert.deepEqual(cleanDecodeStyles('hex'), ['hex'])
+  assert.deepEqual(normalizeSettings({ decodeStyle: 'hex' }).decodeStyles, ['hex'])
+  assert.deepEqual(normalizeSettings({ decodeStyles: ['blocks', 'hex'] }).decodeStyles, ['blocks', 'hex'])
   assert.equal(normalizeSettings({ decodeSpeedMs: 5 }).decodeSpeedMs, 10)
   assert.equal(normalizeSettings({ decodeSpeedMs: 9999 }).decodeSpeedMs, 300)
   assert.equal(normalizeSettings({ decodeSpeedMs: '80' }).decodeSpeedMs, 80)
@@ -92,7 +100,7 @@ test('normalizeSettings repairs unknown and out-of-range values', () => {
     effect: 'default',
     effectPool: [],
     randomEffect: false,
-    decodeStyle: 'blocks',
+    decodeStyles: ['blocks'],
     decodeSpeedMs: 40,
     cycleSeconds: 60,
     typeSpeedMs: 10,
@@ -122,7 +130,7 @@ test('settings store round-trips through an atomic JSON document', async () => {
       effect: 'typewriter',
       effectPool: ['decode', 'terminal'],
       randomEffect: true,
-      decodeStyle: 'hex',
+      decodeStyles: ['blocks', 'hex'],
       decodeSpeedMs: 90,
       cycleSeconds: 7,
       typeSpeedMs: 30,
@@ -131,7 +139,7 @@ test('settings store round-trips through an atomic JSON document', async () => {
     assert.equal(saved.glitch, true)
     assert.deepEqual(saved.effectPool, ['terminal', 'decode'])
     assert.equal(saved.randomEffect, true)
-    assert.equal(saved.decodeStyle, 'hex')
+    assert.deepEqual(saved.decodeStyles, ['blocks', 'hex'])
     assert.deepEqual(await store.get(), saved)
 
     const text = await readFile(file, 'utf8')
@@ -139,7 +147,7 @@ test('settings store round-trips through an atomic JSON document', async () => {
     assert.match(text, /"glitch": true/)
     assert.match(text, /"glitchChance": 45/)
     assert.match(text, /"randomEffect": true/)
-    assert.match(text, /"decodeStyle": "hex"/)
+    assert.match(text, /"decodeStyles"/)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
